@@ -6,7 +6,7 @@ import asyncio
 import json
 import time
 from typing import Any, Dict, List, Optional
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -379,37 +379,16 @@ def get_sample_video():
     raise HTTPException(status_code=404, detail="Sample video not found")
 
 
-@app.post("/api/process-live-frame")
-def process_live_frame(req: ProcessLiveFrameRequest):
-    """Processes a live camera video frame from the user's webcam and runs full deterministic analysis."""
-    if not engine:
-        raise HTTPException(status_code=500, detail="Engine uninitialized")
-
-    now = req.timestamp or time.time()
-    try:
-        b64_data = req.image_base64
-        if "," in b64_data:
-            _, b64_data = b64_data.split(",", 1)
-        raw_bytes = base64.b64decode(b64_data)
-        nparr = np.frombuffer(raw_bytes, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        if frame is None:
-            raise ValueError("Failed to decode image frame")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid image format: {e}")
-
-    result = engine.process_frame(frame, timestamp=now)
-
+def _format_frame_response(result: Dict[str, Any], now: float) -> Dict[str, Any]:
+    """Helper formatting deterministic vision & tracking result into live telemetry."""
     from guardian.activity.state_machine import ActivityState, MovementObservation
 
-    # If tracks were detected in frame
     if result["tracks"]:
         track = result["tracks"][0]
         pid = track["person_id"]
         sm = engine.get_or_create_state_machine(pid, now)
         act = ActivityState(track["activity"])
 
-        # Construct observation slice
         obs = MovementObservation(
             timestamp=now,
             activity=act,
@@ -480,6 +459,49 @@ def process_live_frame(req: ProcessLiveFrameRequest):
             "incidents": [],
             "frame_number": result["frame_number"],
         }
+
+
+@app.post("/api/process-live-frame-raw")
+async def process_live_frame_raw(request: Request):
+    """Ultra-low latency live frame analysis accepting direct binary JPEG payload (zero-copy)."""
+    if not engine:
+        raise HTTPException(status_code=500, detail="Engine uninitialized")
+
+    raw_bytes = await request.body()
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="Empty frame body")
+
+    nparr = np.frombuffer(raw_bytes, np.uint8)
+    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if frame is None:
+        raise HTTPException(status_code=400, detail="Invalid image payload")
+
+    now = time.time()
+    result = engine.process_frame(frame, timestamp=now)
+    return _format_frame_response(result, now)
+
+
+@app.post("/api/process-live-frame")
+def process_live_frame(req: ProcessLiveFrameRequest):
+    """Processes a live camera video frame from the user's webcam and runs full deterministic analysis."""
+    if not engine:
+        raise HTTPException(status_code=500, detail="Engine uninitialized")
+
+    now = req.timestamp or time.time()
+    try:
+        b64_data = req.image_base64
+        if "," in b64_data:
+            _, b64_data = b64_data.split(",", 1)
+        raw_bytes = base64.b64decode(b64_data)
+        nparr = np.frombuffer(raw_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if frame is None:
+            raise ValueError("Failed to decode image frame")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid image format: {e}")
+
+    result = engine.process_frame(frame, timestamp=now)
+    return _format_frame_response(result, now)
 
 
 @app.websocket("/ws/live")

@@ -1,39 +1,50 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Eye, EyeOff, Play, Pause, AlertCircle, RefreshCw } from 'lucide-react';
-import { LiveFrameResult, ActivityDistributionItem } from '../types';
+import { Eye, EyeOff, Play, Pause, AlertCircle, RefreshCw, Maximize2, Minimize2, Activity, ShieldAlert, ChevronDown, ChevronUp } from 'lucide-react';
+import { LiveFrameResult, ActivityDistributionItem, Incident } from '../types';
 
 interface LiveMonitorProps {
   onIncidentTriggered: () => void;
+  activeIncidents?: Incident[];
+  onAcknowledge?: (incidentId: string, operator: string, notes: string) => Promise<void>;
+  onResolve?: (incidentId: string, operator: string, notes: string) => Promise<void>;
 }
 
-export const LiveMonitor: React.FC<LiveMonitorProps> = ({ onIncidentTriggered }) => {
+export const LiveMonitor: React.FC<LiveMonitorProps> = ({
+  onIncidentTriggered,
+  activeIncidents = [],
+}) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [showSkeleton, setShowSkeleton] = useState<boolean>(true);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState<boolean>(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [isHudExpanded, setIsHudExpanded] = useState<boolean>(true);
 
-  // Telemetry HUD states
+  // High efficiency telemetry HUD states
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [framesCount, setFramesCount] = useState<number>(0);
-  const [latencyMs, setLatencyMs] = useState<number>(28);
-  const [narrative, setNarrative] = useState<string>('INITIALIZING DETERMINISTIC SURVEILLANCE PIPELINE...');
+  const [latencyMs, setLatencyMs] = useState<number>(18);
+  const [adaptiveFps, setAdaptiveFps] = useState<number>(15);
+  const [narrative, setNarrative] = useState<string>('ANALYZING LIVE CAMERA FEED // SYSTEM NOMINAL');
   const [distribution, setDistribution] = useState<ActivityDistributionItem[]>([
-    { label: 'STANDING', percent: 85.0 },
-    { label: 'WALKING', percent: 10.0 },
-    { label: 'SITTING', percent: 5.0 },
+    { label: 'SITTING', percent: 80.0 },
+    { label: 'STANDING', percent: 15.0 },
+    { label: 'WALKING', percent: 5.0 },
     { label: 'UNCLEAR / OTHER', percent: 0.0 },
     { label: 'LYING / RESTING', percent: 0.0 },
     { label: 'POSSIBLE FALL · REVIEW', percent: 0.0 },
     { label: 'NO PERSON VISIBLE', percent: 0.0 },
   ]);
-  const [activeState, setActiveState] = useState<string>('STANDING');
+  const [activeState, setActiveState] = useState<string>('SITTING');
   const [kinematics, setKinematics] = useState({
     torsoAngle: 5.0,
-    relativeHeight: 0.88,
-    motionIntensity: 0.02,
+    relativeHeight: 0.70,
+    motionIntensity: 0.01,
     motionlessDuration: 0.0,
   });
 
@@ -49,7 +60,7 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({ onIncidentTriggered })
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
         audio: false,
       });
 
@@ -67,7 +78,7 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({ onIncidentTriggered })
       }
     } catch (err: any) {
       console.warn('Webcam permission error:', err);
-      setCameraError('Camera access required. Please allow webcam permission in your browser prompt.');
+      setCameraError('Camera access required. Please grant permission in your browser to start live surveillance.');
     }
   }, []);
 
@@ -79,6 +90,27 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({ onIncidentTriggered })
       videoRef.current.srcObject = null;
     }
     setCameraReady(false);
+  }, []);
+
+  // Toggle true browser fullscreen
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      containerRef.current?.requestFullscreen().then(() => {
+        setIsFullscreen(true);
+      }).catch((e) => console.warn('Fullscreen failed:', e));
+    } else {
+      document.exitFullscreen().then(() => {
+        setIsFullscreen(false);
+      }).catch((e) => console.warn('Exit fullscreen failed:', e));
+    }
+  };
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
   }, []);
 
   // Mount webcam on startup
@@ -99,91 +131,133 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({ onIncidentTriggered })
     return () => clearInterval(timer);
   }, [isPlaying, cameraReady]);
 
-  // Frame processing loop
+  // Ultra-efficient frame processing loop
   useEffect(() => {
     let timeoutId: any;
     let isProcessing = false;
+    let lastMotionTimestamp = Date.now();
+
+    // Create offscreen capture canvas for zero-overhead downsampling (384x288)
+    if (!offscreenCanvasRef.current) {
+      const oc = document.createElement('canvas');
+      oc.width = 384;
+      oc.height = 288;
+      offscreenCanvasRef.current = oc;
+    }
 
     const captureAndProcess = async () => {
       if (!isPlaying || isProcessing) {
-        timeoutId = setTimeout(captureAndProcess, 120);
+        timeoutId = setTimeout(captureAndProcess, 100);
         return;
       }
 
       const video = videoRef.current;
-      const canvas = canvasRef.current;
-      if (!video || !canvas || video.readyState < 2) {
-        timeoutId = setTimeout(captureAndProcess, 120);
+      const overlayCanvas = canvasRef.current;
+      const offscreen = offscreenCanvasRef.current;
+      if (!video || !overlayCanvas || !offscreen || video.readyState < 2) {
+        timeoutId = setTimeout(captureAndProcess, 100);
         return;
       }
 
       isProcessing = true;
       const t0 = performance.now();
 
+      // Adaptive throttle: If motion has been minimal for >3s, drop to 8 FPS to save system CPU
+      const isStill = (Date.now() - lastMotionTimestamp) > 3000;
+      const nextInterval = isStill ? 140 : 65; // ~7 FPS when resting, ~16 FPS when moving
+      setAdaptiveFps(isStill ? 8 : 16);
+
       try {
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          // Draw webcam video directly onto the single canvas
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        // Draw video downsampled onto offscreen canvas (near-instant 384x288)
+        const offCtx = offscreen.getContext('2d', { willReadFrequently: false });
+        if (offCtx) {
+          offCtx.drawImage(video, 0, 0, offscreen.width, offscreen.height);
 
-          // Get Base64 image snapshot
-          const base64Data = canvas.toDataURL('image/jpeg', 0.65);
-
-          const res = await fetch('/api/process-live-frame', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              image_base64: base64Data,
-              timestamp: Date.now() / 1000,
-            }),
-          });
-
-          if (res.ok) {
-            const data: LiveFrameResult = await res.json();
-            setFramesCount((f) => f + 1);
-            setNarrative(data.narrative);
-            setDistribution(data.distribution);
-            setActiveState(data.active_state);
-            setKinematics({
-              torsoAngle: data.torso_angle,
-              relativeHeight: data.relative_body_height,
-              motionIntensity: data.motion_intensity,
-              motionlessDuration: data.motionless_duration,
-            });
-
-            if (data.incidents && data.incidents.length > 0) {
-              onIncidentTriggered();
+          // Use native async toBlob for zero main-thread freezing
+          offscreen.toBlob(async (blob) => {
+            if (!blob) {
+              isProcessing = false;
+              timeoutId = setTimeout(captureAndProcess, nextInterval);
+              return;
             }
 
-            // Draw skeleton & bounding box over canvas
-            if (showSkeleton && data.landmarks) {
-              drawSkeleton(ctx, data.landmarks, data.bbox, data.active_state, canvas.width, canvas.height);
+            try {
+              // Direct binary upload to FastAPI raw endpoint
+              const res = await fetch('/api/process-live-frame-raw', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/octet-stream' },
+                body: blob,
+              });
+
+              if (res.ok) {
+                const data: LiveFrameResult = await res.json();
+                setFramesCount((f) => f + 1);
+                setNarrative(data.narrative);
+                setDistribution(data.distribution);
+                setActiveState(data.active_state);
+
+                if (data.motion_intensity > 0.035) {
+                  lastMotionTimestamp = Date.now();
+                }
+
+                setKinematics({
+                  torsoAngle: data.torso_angle,
+                  relativeHeight: data.relative_body_height,
+                  motionIntensity: data.motion_intensity,
+                  motionlessDuration: data.motionless_duration,
+                });
+
+                if (data.incidents && data.incidents.length > 0) {
+                  onIncidentTriggered();
+                }
+
+                // Render skeleton overlay onto transparent overlay canvas
+                renderOverlay(data.landmarks, data.bbox, data.active_state);
+              }
+            } catch (err) {
+              // Frame dropped safely
+            } finally {
+              const dt = Math.round(performance.now() - t0);
+              setLatencyMs(dt);
+              isProcessing = false;
+              timeoutId = setTimeout(captureAndProcess, nextInterval);
             }
-          }
+          }, 'image/jpeg', 0.55);
+        } else {
+          isProcessing = false;
+          timeoutId = setTimeout(captureAndProcess, nextInterval);
         }
       } catch (e) {
-        // Network or inference cycle
-      } finally {
-        const dt = Math.round(performance.now() - t0);
-        setLatencyMs(dt);
         isProcessing = false;
-        timeoutId = setTimeout(captureAndProcess, 120);
+        timeoutId = setTimeout(captureAndProcess, nextInterval);
       }
     };
 
-    timeoutId = setTimeout(captureAndProcess, 200);
+    timeoutId = setTimeout(captureAndProcess, 150);
     return () => clearTimeout(timeoutId);
-  }, [isPlaying, showSkeleton, onIncidentTriggered]);
+  }, [isPlaying, onIncidentTriggered]);
 
-  // Skeleton rendering helper
-  const drawSkeleton = (
-    ctx: CanvasRenderingContext2D,
+  // Transparent overlay renderer
+  const renderOverlay = (
     lms: Record<string, [number, number, number]>,
     bbox: [number, number, number, number],
-    state: string,
-    width: number,
-    height: number
+    state: string
   ) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Clear previous overlay
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!showSkeleton || !lms || Object.keys(lms).length === 0) {
+      return;
+    }
+
+    const width = canvas.width;
+    const height = canvas.height;
+
     let strokeColor = '#10b981'; // Green for normal
     if (state.includes('FALL') || state === 'LYING_ON_FLOOR') {
       strokeColor = '#ef4444'; // Red for fall
@@ -223,15 +297,15 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({ onIncidentTriggered })
       }
     });
 
-    // Draw joints
+    // Draw landmark points
     Object.values(lms).forEach(([x, y]) => {
       ctx.beginPath();
-      ctx.arc(x * width, y * height, 4, 0, Math.PI * 2);
+      ctx.arc(x * width, y * height, 4.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
     });
 
-    // Draw Bounding Box
+    // Draw Tactical Bounding Box
     if (bbox && bbox[2] > bbox[0]) {
       const [ymin, xmin, ymax, xmax] = bbox;
       const bx = xmin * width;
@@ -239,72 +313,85 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({ onIncidentTriggered })
       const bw = (xmax - xmin) * width;
       const bh = (ymax - ymin) * height;
 
+      // Outer box
       ctx.strokeStyle = strokeColor;
       ctx.lineWidth = 1.5;
       ctx.strokeRect(bx, by, bw, bh);
 
-      // Label Tag
+      // Corner target brackets
+      const cornerLen = Math.min(18, bw / 4, bh / 4);
+      ctx.lineWidth = 3;
+
+      // Top-left
+      ctx.beginPath();
+      ctx.moveTo(bx, by + cornerLen);
+      ctx.lineTo(bx, by);
+      ctx.lineTo(bx + cornerLen, by);
+      ctx.stroke();
+
+      // Top-right
+      ctx.beginPath();
+      ctx.moveTo(bx + bw - cornerLen, by);
+      ctx.lineTo(bx + bw, by);
+      ctx.lineTo(bx + bw, by + cornerLen);
+      ctx.stroke();
+
+      // Bottom-left
+      ctx.beginPath();
+      ctx.moveTo(bx, by + bh - cornerLen);
+      ctx.lineTo(bx, by + bh);
+      ctx.lineTo(bx + cornerLen, by + bh);
+      ctx.stroke();
+
+      // Bottom-right
+      ctx.beginPath();
+      ctx.moveTo(bx + bw - cornerLen, by + bh);
+      ctx.lineTo(bx + bw, by + bh);
+      ctx.lineTo(bx + bw, by + bh - cornerLen);
+      ctx.stroke();
+
+      // State Tag
       ctx.fillStyle = strokeColor;
-      ctx.fillRect(bx, Math.max(0, by - 22), Math.min(220, bw + 40), 22);
+      ctx.fillRect(bx, Math.max(0, by - 24), Math.min(220, bw + 40), 24);
       ctx.fillStyle = '#000000';
-      ctx.font = 'bold 11px JetBrains Mono';
-      ctx.fillText(`person_01: ${state}`, bx + 6, Math.max(14, by - 7));
+      ctx.font = 'bold 11px JetBrains Mono, monospace';
+      ctx.fillText(`person_01: ${state}`, bx + 8, Math.max(16, by - 8));
     }
   };
 
   const topActive = distribution[0] || { label: 'UNCLEAR', percent: 0 };
   const isEmergency = topActive.label.includes('FALL') || activeState.includes('FALL');
+  const urgentIncidents = activeIncidents.filter((i) => i.status !== 'RESOLVED');
 
   return (
-    <div className="bg-black border border-slate-800 rounded-xl overflow-hidden flex flex-col font-mono text-xs shadow-2xl">
-      {/* Hidden background video source for capturing frames */}
-      <video
-        ref={videoRef}
-        playsInline
-        autoPlay
-        muted
-        style={{ display: 'none' }}
-      />
-
-      {/* Top Portion: Clean Single Video Canvas with Tactical Overlays */}
-      <div className="relative bg-black aspect-video w-full flex items-center justify-center overflow-hidden border-b border-slate-900">
-        <canvas
-          ref={canvasRef}
-          width={640}
-          height={480}
-          className="w-full h-full object-contain block bg-black"
+    <div
+      ref={containerRef}
+      className={`relative bg-black w-full overflow-hidden flex flex-col font-mono text-xs select-none transition-all ${
+        isFullscreen ? 'fixed inset-0 z-50 h-screen' : 'h-[calc(100vh-76px)] rounded-2xl border border-slate-800 shadow-2xl'
+      }`}
+    >
+      {/* 1. Full Screen Video Layer (Hardware-accelerated) */}
+      <div className="relative w-full h-full flex items-center justify-center bg-black overflow-hidden">
+        <video
+          ref={videoRef}
+          playsInline
+          autoPlay
+          muted
+          className="w-full h-full object-cover"
         />
 
-        {/* Tactical Watermark Overlay */}
-        <div className="absolute top-3 left-3 flex items-center space-x-2 z-10 bg-black/75 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-800">
-          <span className={`w-2 h-2 rounded-full ${cameraReady ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
-          <span className="text-[11px] font-bold text-slate-200 tracking-wider">LIVE WEBCAM STREAM</span>
-          <span className="text-slate-500">|</span>
-          <span className="text-[10px] text-sky-400">{latencyMs}MS</span>
-        </div>
-
-        {/* View Controls: Skeleton Toggle & Pause/Play */}
-        <div className="absolute top-3 right-3 flex items-center space-x-2 z-10">
-          <button
-            onClick={() => setShowSkeleton(!showSkeleton)}
-            className="p-1.5 rounded-lg bg-black/80 backdrop-blur border border-slate-800 text-slate-300 hover:text-white transition-colors"
-            title="Toggle Skeleton Tracking"
-          >
-            {showSkeleton ? <Eye className="w-4 h-4 text-sky-400" /> : <EyeOff className="w-4 h-4 text-slate-500" />}
-          </button>
-          <button
-            onClick={() => setIsPlaying(!isPlaying)}
-            className="p-1.5 rounded-lg bg-black/80 backdrop-blur border border-slate-800 text-slate-300 hover:text-white transition-colors"
-            title={isPlaying ? 'Pause Surveillance' : 'Resume Surveillance'}
-          >
-            {isPlaying ? <Pause className="w-4 h-4 text-slate-300" /> : <Play className="w-4 h-4 text-emerald-400" />}
-          </button>
-        </div>
+        {/* 2. Transparent Tactical Canvas Overlay directly on top */}
+        <canvas
+          ref={canvasRef}
+          width={1280}
+          height={720}
+          className="absolute inset-0 w-full h-full object-cover pointer-events-none z-10"
+        />
 
         {/* Camera Permission Alert if Blocked */}
         {cameraError && (
-          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-20">
-            <AlertCircle className="w-10 h-10 text-amber-400 mb-3" />
+          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-30">
+            <AlertCircle className="w-12 h-12 text-amber-400 mb-3" />
             <p className="text-slate-200 font-semibold max-w-md mb-4 text-sm">{cameraError}</p>
             <button
               onClick={startWebcam}
@@ -316,70 +403,122 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({ onIncidentTriggered })
           </div>
         )}
 
-        {/* Bottom Metadata Bar */}
-        <div className="absolute bottom-2 left-3 bg-black/80 backdrop-blur px-2.5 py-1 rounded text-[10px] text-slate-400 border border-slate-800 flex items-center space-x-3">
-          <div>FEED: <span className="text-emerald-400 font-bold">WEBCAM</span></div>
-          <div>INFERENCE: <span className="text-sky-400">{latencyMs}MS</span></div>
-          <div>RATE: <span className="text-slate-200">~10 FPS</span></div>
-        </div>
-      </div>
-
-      {/* Bottom Portion: Tactical Terminal HUD */}
-      <div className="p-5 bg-black text-slate-200 flex flex-col space-y-4">
-        {/* 1. Situation Narrative Banner */}
-        <div className="text-xs uppercase tracking-wide font-mono text-slate-300 leading-relaxed min-h-[38px] border-b border-slate-900 pb-3">
-          {narrative}
+        {/* TOP LEFT FLOATING HUD: Live Telemetry Status */}
+        <div className="absolute top-4 left-4 z-20 flex items-center space-x-2 bg-black/80 backdrop-blur-md px-3.5 py-2 rounded-xl border border-slate-800/80 shadow-lg text-slate-200 font-mono">
+          <span className={`w-2.5 h-2.5 rounded-full ${cameraReady ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+          <span className="font-bold tracking-wider text-[11px]">LIVE SURVEILLANCE</span>
+          <span className="text-slate-600">|</span>
+          <span className="text-sky-400 font-semibold">{latencyMs}MS</span>
+          <span className="text-slate-600">|</span>
+          <span className="text-slate-400 font-medium">~{adaptiveFps} FPS (ADAPTIVE)</span>
         </div>
 
-        {/* 2. Top Metric Grid: TIME, FRAMES, EST. COST */}
-        <div className="grid grid-cols-3 text-xs border-b border-slate-900 pb-3 text-slate-400 font-mono">
-          <div>
-            <div className="text-[10px] text-slate-500 uppercase">TIME</div>
-            <div className="text-sm font-bold text-slate-200">{String(elapsedSeconds).padStart(3, '0')} S</div>
-          </div>
-          <div>
-            <div className="text-[10px] text-slate-500 uppercase">FRAMES</div>
-            <div className="text-sm font-bold text-slate-200">{String(framesCount).padStart(4, '0')}</div>
-          </div>
-          <div>
-            <div className="text-[10px] text-slate-500 uppercase">EST. COST / USD</div>
-            <div className="text-sm font-bold text-emerald-400">$0.000000 (LOCAL)</div>
-          </div>
-        </div>
-
-        {/* 3. High-Salience Active State Banner (Red for Fall, White for Normal) */}
-        <div
-          className={`py-2.5 px-3.5 rounded-lg font-bold text-sm tracking-wider flex items-center justify-between transition-colors ${
-            isEmergency
-              ? 'bg-rose-600 text-white'
-              : 'bg-white text-black'
-          }`}
-        >
-          <span className="font-mono">{topActive.percent.toFixed(1)}%</span>
-          <span className="uppercase">{topActive.label}</span>
-        </div>
-
-        {/* 4. Activity & Posture Distribution Breakdown Table */}
-        <div className="space-y-1.5 pt-1">
-          {distribution.slice(1).map((item, idx) => (
-            <div
-              key={idx}
-              className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-[#111622] hover:bg-[#161c2d] border border-slate-900 font-mono text-xs text-slate-300 transition-colors"
-            >
-              <span className="font-semibold text-slate-400">{item.percent.toFixed(1)}%</span>
-              <span className="uppercase tracking-wide text-slate-300">{item.label}</span>
+        {/* TOP RIGHT FLOATING HUD: View Controls & Fullscreen */}
+        <div className="absolute top-4 right-4 z-20 flex items-center space-x-2">
+          {urgentIncidents.length > 0 && (
+            <div className="bg-rose-600/90 backdrop-blur text-white px-3 py-1.5 rounded-xl border border-rose-500 font-bold text-xs flex items-center space-x-1.5 animate-pulse shadow-lg">
+              <ShieldAlert className="w-3.5 h-3.5" />
+              <span>{urgentIncidents.length} ALERT{urgentIncidents.length > 1 ? 'S' : ''}</span>
             </div>
-          ))}
+          )}
+
+          <button
+            onClick={() => setShowSkeleton(!showSkeleton)}
+            className="p-2 rounded-xl bg-black/80 backdrop-blur-md border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900 transition-colors shadow-lg"
+            title="Toggle Skeleton Tracking Overlay"
+          >
+            {showSkeleton ? <Eye className="w-4 h-4 text-sky-400" /> : <EyeOff className="w-4 h-4 text-slate-500" />}
+          </button>
+
+          <button
+            onClick={() => setIsPlaying(!isPlaying)}
+            className="p-2 rounded-xl bg-black/80 backdrop-blur-md border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900 transition-colors shadow-lg"
+            title={isPlaying ? 'Pause Feed' : 'Resume Feed'}
+          >
+            {isPlaying ? <Pause className="w-4 h-4 text-slate-300" /> : <Play className="w-4 h-4 text-emerald-400" />}
+          </button>
+
+          <button
+            onClick={toggleFullscreen}
+            className="p-2 rounded-xl bg-black/80 backdrop-blur-md border border-slate-800 text-sky-400 hover:text-white hover:bg-slate-900 transition-colors shadow-lg"
+            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Edge-to-Edge Fullscreen'}
+          >
+            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
         </div>
 
-        {/* 5. Bottom Status Line */}
-        <div className="border-t border-slate-900 pt-3 flex items-center justify-between text-[11px] font-mono text-slate-500 uppercase tracking-wider">
-          <div>
-            {kinematics.motionIntensity > 0.04 ? 'MOVEMENT / POSTURE CHANGE' : 'NO CLEAR CHANGE'} / {latencyMs} MS
+        {/* BOTTOM FLOATING TACTICAL COMMAND DOCK */}
+        <div className="absolute bottom-4 inset-x-4 z-20 max-w-4xl mx-auto flex flex-col bg-black/85 backdrop-blur-xl border border-slate-800/90 rounded-2xl p-4 shadow-2xl transition-all">
+          {/* Header Bar of the Dock */}
+          <div className="flex items-center justify-between pb-2.5 border-b border-slate-800/80">
+            <div className="flex items-center space-x-2 text-slate-300 font-mono text-xs">
+              <Activity className="w-3.5 h-3.5 text-sky-400" />
+              <span className="font-semibold uppercase tracking-wide truncate max-w-lg">{narrative}</span>
+            </div>
+
+            <button
+              onClick={() => setIsHudExpanded(!isHudExpanded)}
+              className="text-slate-500 hover:text-slate-300 transition-colors p-1"
+              title={isHudExpanded ? 'Collapse Telemetry' : 'Expand Telemetry'}
+            >
+              {isHudExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </button>
           </div>
-          <div>
-            TORSO: {kinematics.torsoAngle.toFixed(0)} DEG | HEIGHT: {kinematics.relativeHeight.toFixed(2)}
-          </div>
+
+          {isHudExpanded && (
+            <div className="space-y-3 pt-3">
+              {/* Stats Grid: TIME, FRAMES, COST */}
+              <div className="grid grid-cols-3 text-xs text-slate-400 font-mono border-b border-slate-900 pb-2.5">
+                <div>
+                  <div className="text-[10px] text-slate-500 uppercase">SURVEILLANCE TIME</div>
+                  <div className="text-sm font-bold text-slate-100">{String(elapsedSeconds).padStart(3, '0')} S</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-500 uppercase">PROCESSED FRAMES</div>
+                  <div className="text-sm font-bold text-slate-100">{String(framesCount).padStart(4, '0')}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-500 uppercase">CLOUD COST / API</div>
+                  <div className="text-sm font-bold text-emerald-400">$0.000000 (LOCAL)</div>
+                </div>
+              </div>
+
+              {/* Active State Banner */}
+              <div
+                className={`py-2 px-3.5 rounded-xl font-bold text-xs tracking-wider flex items-center justify-between transition-colors shadow-sm ${
+                  isEmergency
+                    ? 'bg-rose-600 text-white'
+                    : 'bg-white text-black'
+                }`}
+              >
+                <span className="font-mono text-sm">{topActive.percent.toFixed(1)}%</span>
+                <span className="uppercase text-sm">{topActive.label}</span>
+              </div>
+
+              {/* Multi-column Posture Breakdown Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                {distribution.slice(1, 7).map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-slate-950/90 border border-slate-800/60 font-mono text-[11px] text-slate-300"
+                  >
+                    <span className="font-semibold text-slate-400">{item.percent.toFixed(1)}%</span>
+                    <span className="uppercase tracking-wide truncate ml-2 text-slate-300">{item.label}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Kinematics Status Footer */}
+              <div className="flex items-center justify-between text-[10px] text-slate-500 border-t border-slate-900 pt-2 uppercase">
+                <div>
+                  {kinematics.motionIntensity > 0.035 ? 'MOVEMENT / POSTURE CHANGE' : 'NO CLEAR CHANGE'} &bull; LATENCY: {latencyMs}MS
+                </div>
+                <div>
+                  TORSO: {kinematics.torsoAngle.toFixed(0)}&deg; &bull; REL_H: {kinematics.relativeHeight.toFixed(2)} &bull; STILLNESS: {kinematics.motionlessDuration.toFixed(1)}S
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

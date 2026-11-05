@@ -5,9 +5,11 @@ import { ActiveIncidents } from './components/ActiveIncidents';
 import { PolicyManager } from './components/PolicyManager';
 import { AuditTimeline } from './components/AuditTimeline';
 import { Incident, SafetyRule, Zone, AuditLog } from './types';
+import { LayoutGrid, Maximize } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<DashboardTab>('surveillance');
+  const [surveillanceMode, setSurveillanceMode] = useState<'fullscreen' | 'split'>('fullscreen');
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [rules, setRules] = useState<SafetyRule[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
@@ -145,23 +147,76 @@ export const App: React.FC = () => {
         onRefresh={fetchData}
       />
 
-      <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
+      {/* Main Content Area */}
+      <main className={`flex-1 flex flex-col ${activeTab === 'surveillance' ? 'p-3 w-full' : 'p-6 max-w-7xl mx-auto w-full'}`}>
         {/* Tab 1: Live Surveillance HUD */}
         {activeTab === 'surveillance' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Live Camera & HUD Panel */}
-            <div className="lg:col-span-7">
-              <LiveMonitor onIncidentTriggered={fetchData} />
+          <div className="flex-1 flex flex-col space-y-2">
+            {/* Top Toolbar for Surveillance Mode */}
+            <div className="flex items-center justify-between px-2 text-xs font-mono">
+              <div className="flex items-center space-x-2 text-slate-400">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span className="font-bold text-slate-200">HIGH-PERFORMANCE HARDWARE-ACCELERATED WEBCAM PIPELINE</span>
+              </div>
+
+              <div className="flex items-center space-x-1 bg-slate-900 border border-slate-800 p-1 rounded-lg">
+                <button
+                  onClick={() => setSurveillanceMode('fullscreen')}
+                  className={`flex items-center space-x-1.5 px-3 py-1 rounded text-[11px] font-medium transition-colors ${
+                    surveillanceMode === 'fullscreen'
+                      ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Webcam Full Screen View"
+                >
+                  <Maximize className="w-3 h-3" />
+                  <span>FULLSCREEN WEBCAM</span>
+                </button>
+
+                <button
+                  onClick={() => setSurveillanceMode('split')}
+                  className={`flex items-center space-x-1.5 px-3 py-1 rounded text-[11px] font-medium transition-colors ${
+                    surveillanceMode === 'split'
+                      ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Side-by-side Camera and Incidents Console"
+                >
+                  <LayoutGrid className="w-3 h-3" />
+                  <span>SPLIT COMMAND VIEW</span>
+                </button>
+              </div>
             </div>
 
-            {/* Live Incident & Alerts Queue */}
-            <div className="lg:col-span-5 space-y-6">
-              <ActiveIncidents
-                incidents={incidents}
-                onAcknowledge={handleAcknowledge}
-                onResolve={handleResolve}
-              />
-            </div>
+            {/* Layout Rendering */}
+            {surveillanceMode === 'fullscreen' ? (
+              <div className="flex-1 w-full">
+                <LiveMonitor
+                  onIncidentTriggered={fetchData}
+                  activeIncidents={incidents}
+                  onAcknowledge={handleAcknowledge}
+                  onResolve={handleResolve}
+                />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start flex-1">
+                <div className="lg:col-span-8">
+                  <LiveMonitor
+                    onIncidentTriggered={fetchData}
+                    activeIncidents={incidents}
+                    onAcknowledge={handleAcknowledge}
+                    onResolve={handleResolve}
+                  />
+                </div>
+                <div className="lg:col-span-4 space-y-4">
+                  <ActiveIncidents
+                    incidents={incidents}
+                    onAcknowledge={handleAcknowledge}
+                    onResolve={handleResolve}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -195,16 +250,16 @@ export const App: React.FC = () => {
         )}
       </main>
 
-      <footer className="border-t border-slate-900 bg-[#06080e] py-4 px-6 text-center text-xs text-slate-500 font-mono flex flex-col sm:flex-row sm:items-center sm:justify-between max-w-7xl mx-auto w-full gap-2">
+      <footer className="border-t border-slate-900 bg-[#06080e] py-3 px-6 text-center text-xs text-slate-500 font-mono flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-2">
         <div>
           GUARDIAN &copy; 2026 &mdash; Deterministic Human Behaviour & Safety Decision Engine
         </div>
         <div className="flex items-center space-x-3 text-[11px] text-slate-400">
-          <span>OFFLINE LOCAL-FIRST</span>
+          <span>HARDWARE-ACCELERATED</span>
           <span>&bull;</span>
-          <span>ZERO LLMS</span>
+          <span>ADAPTIVE INFERENCE</span>
           <span>&bull;</span>
-          <span>STRICT EXPLAINABILITY</span>
+          <span>ZERO CLOUD APIS</span>
         </div>
       </footer>
     </div>
