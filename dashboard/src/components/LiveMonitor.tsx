@@ -47,11 +47,12 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
     narrative: 'SYSTEM NOMINAL // SENSORY PIPELINE ACTIVE',
     distribution: [
       { label: 'SITTING', percent: 80.0 },
-      { label: 'STANDING', percent: 15.0 },
-      { label: 'WALKING', percent: 5.0 },
-      { label: 'UNCLEAR / OTHER', percent: 0.0 },
-      { label: 'LYING / RESTING', percent: 0.0 },
-      { label: 'POSSIBLE FALL · REVIEW', percent: 0.0 },
+      { label: 'STANDING', percent: 10.0 },
+      { label: 'BENDING / FORWARD TILT', percent: 5.0 },
+      { label: 'WALKING', percent: 3.0 },
+      { label: 'UNCLEAR / OTHER', percent: 1.0 },
+      { label: 'LYING / RESTING', percent: 0.5 },
+      { label: 'POSSIBLE FALL · REVIEW', percent: 0.5 },
       { label: 'NO PERSON VISIBLE', percent: 0.0 },
     ],
     activeState: 'SITTING',
@@ -492,31 +493,40 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
               </div>
             </div>
 
-            {/* High-Salience Active State Banner */}
-            <div className="py-2 shrink-0">
-              <div
-                className={`py-2 px-3.5 rounded-xl font-bold text-xs tracking-wider flex items-center justify-between transition-colors shadow-sm ${
-                  isEmergency
-                    ? 'bg-rose-600 text-white'
-                    : 'bg-white text-black'
-                }`}
-              >
-                <span className="font-mono text-sm">{topActive.percent.toFixed(1)}%</span>
-                <span className="uppercase text-sm">{topActive.label}</span>
-              </div>
-            </div>
+            {/* Dynamic Posture & Action Probability Cards (Auto-swapping in real time based on %) */}
+            <div className="flex-1 space-y-1.5 overflow-y-auto pr-1 py-2 min-h-0">
+              {telemetry.distribution.map((item, idx) => {
+                const isTop = idx === 0;
+                const isFallAlert = item.label.includes('FALL') && item.percent > 25.0;
 
-            {/* Vertical Posture Distribution Breakdown Stack */}
-            <div className="flex-1 space-y-1.5 overflow-y-auto pr-1 py-1 min-h-0">
-              {telemetry.distribution.slice(1).map((item, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-[#111622] hover:bg-[#161c2d] border border-slate-900/80 font-mono text-xs text-slate-300 transition-colors"
-                >
-                  <span className="font-semibold text-slate-400">{item.percent.toFixed(1)}%</span>
-                  <span className="uppercase tracking-wide truncate ml-2 text-slate-300">{item.label}</span>
-                </div>
-              ))}
+                return (
+                  <div
+                    key={item.label}
+                    className={`relative overflow-hidden rounded-xl py-2 px-3 flex items-center justify-between font-mono text-xs transition-all duration-300 ease-in-out border shadow-sm ${
+                      isTop
+                        ? isFallAlert
+                          ? 'bg-rose-600 text-white border-rose-500 font-bold scale-[1.01]'
+                          : 'bg-white text-black border-white font-bold scale-[1.01]'
+                        : 'bg-[#111622] hover:bg-[#161c2d] border-slate-900/90 text-slate-300'
+                    }`}
+                  >
+                    {/* Subtle proportional fill bar */}
+                    {!isTop && (
+                      <div
+                        className="absolute left-0 top-0 bottom-0 bg-sky-500/10 pointer-events-none transition-all duration-300"
+                        style={{ width: `${Math.min(100, Math.max(0, item.percent))}%` }}
+                      />
+                    )}
+
+                    <span className={`relative z-10 font-bold ${isTop ? (isFallAlert ? 'text-white' : 'text-black') : 'text-slate-200'}`}>
+                      {item.percent.toFixed(1)}%
+                    </span>
+                    <span className={`relative z-10 uppercase tracking-wide truncate ml-2 ${isTop ? (isFallAlert ? 'text-white' : 'text-black') : 'text-slate-300'}`}>
+                      {item.label}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
 
             {/* Kinematics Status Footer */}

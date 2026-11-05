@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import math
 from collections import deque
 from typing import Any, Deque, Dict, List, Optional
+import numpy as np
+
 from guardian.activity.state_machine import ActivityState, MovementObservation
 
 
@@ -60,26 +63,36 @@ class ActivityClassifier:
             # Legs are hidden below desk or cropped off by close-up framing
 
             # 1. Floor collapse / Fall check:
-            # Head drops low into lower frame (head_y >= 0.65), or flat torso with dropped shoulders
-            if obs.head_y >= 0.65 or (obs.torso_angle >= 60.0 and obs.shoulder_y >= 0.60):
+            # Both shoulders and head drop down toward floor level, or torso horizontal with dropped center of mass
+            is_desk_collapse = (
+                (obs.head_y >= 0.70 and obs.shoulder_y >= 0.65)
+                or (obs.torso_angle >= 55.0 and obs.shoulder_y >= 0.60)
+                or (obs.head_y >= 0.70 and obs.torso_angle >= 50.0)
+            )
+            if is_desk_collapse:
                 return ActivityState.LYING_ON_FLOOR
 
             # 2. Reclining in chair:
-            # Person leans back (torso angle 40-75 deg), but head is still elevated above desk
+            # Person leans back (torso/shoulder tilt 40-75 deg), but head is still elevated above desk
             if 40.0 <= obs.torso_angle < 75.0 and obs.head_y < 0.55:
                 return ActivityState.SITTING
 
             # 3. Standing up at desk:
-            # Head rises to the top border (< 0.18) and shoulders rise (< 0.28) with upright torso
-            if obs.head_y < 0.18 and obs.shoulder_y < 0.28 and obs.torso_angle < 30.0:
+            # Head rises toward top frame (< 0.20) and shoulders rise (< 0.30) with upright torso
+            if obs.head_y < 0.20 and obs.shoulder_y < 0.30 and obs.torso_angle < 30.0:
                 return ActivityState.STANDING
 
-            # 4. Seated at desk / webcam:
-            # Head in normal upper-middle window (head_y >= 0.18) and upright torso (< 45 deg)
+            # 4. Neck flexion / forward tilt at desk (looking down at keyboard, phone, or books):
+            # Head/neck tilted forward while seated stably at desk
+            if obs.neck_angle > 25.0 and obs.shoulder_y < 0.65:
+                return ActivityState.SITTING
+
+            # 5. Seated upright at desk / workstation:
+            # Head in normal upper-middle window (head_y >= 0.20) and upright torso (< 45 deg)
             if obs.torso_angle < 45.0:
                 return ActivityState.SITTING
 
-            # 5. Dynamic movement / transition (head movement / gestures while seated remain SITTING)
+            # 6. Dynamic movement / transition (head movement / gestures while seated remain SITTING)
             if abs(obs.vertical_velocity) > 0.35:
                 return ActivityState.TRANSITIONING
 
@@ -91,78 +104,99 @@ class ActivityClassifier:
         active_state: ActivityState,
         risk_score: float = 0.0,
     ) -> List[Dict[str, Any]]:
-        """Compute deterministic breakdown percentages matching clinical surveillance format."""
+        """Compute real-time continuous kinematic probability distribution with dynamic card ordering."""
         if obs is None or active_state == ActivityState.UNKNOWN:
             return [
-                {"label": "NO PERSON VISIBLE", "percent": 95.0, "status": "MUTED"},
-                {"label": "UNCLEAR / OTHER", "percent": 5.0, "status": "MUTED"},
-                {"label": "STANDING", "percent": 0.0, "status": "MUTED"},
+                {"label": "NO PERSON VISIBLE", "percent": 96.0, "status": "MUTED"},
+                {"label": "UNCLEAR / OTHER", "percent": 4.0, "status": "MUTED"},
                 {"label": "SITTING", "percent": 0.0, "status": "MUTED"},
-                {"label": "LYING / RESTING", "percent": 0.0, "status": "MUTED"},
+                {"label": "STANDING", "percent": 0.0, "status": "MUTED"},
+                {"label": "BENDING / FORWARD TILT", "percent": 0.0, "status": "MUTED"},
                 {"label": "WALKING", "percent": 0.0, "status": "MUTED"},
+                {"label": "LYING / RESTING", "percent": 0.0, "status": "MUTED"},
                 {"label": "POSSIBLE FALL · REVIEW", "percent": 0.0, "status": "MUTED"},
             ]
 
-        # Base score distribution calculated deterministically from kinematics
-        fall_pct = round(max(0.0, min(100.0, risk_score * 100.0)), 1)
-        if active_state == ActivityState.LYING_ON_FLOOR:
-            fall_pct = max(fall_pct, 73.3)
-            lying_pct = round(max(5.0, 95.0 - fall_pct), 1)
-            standing_pct = 2.0
-            sitting_pct = 1.5
-            walking_pct = 0.5
-            unclear_pct = 2.0
-            no_person_pct = 0.0
-        elif active_state == ActivityState.LYING:
-            fall_pct = min(15.0, fall_pct)
-            lying_pct = 78.4
-            sitting_pct = 12.0
-            standing_pct = 2.0
-            walking_pct = 1.0
-            unclear_pct = 3.6
-            no_person_pct = 0.0
-        elif active_state == ActivityState.WALKING:
-            walking_pct = 68.5
-            standing_pct = 20.0
-            sitting_pct = 5.0
-            lying_pct = 1.0
-            fall_pct = 0.5
-            unclear_pct = 5.0
-            no_person_pct = 0.0
-        elif active_state == ActivityState.STANDING:
-            standing_pct = 74.2
-            walking_pct = 15.0
-            sitting_pct = 6.0
-            lying_pct = 0.5
-            fall_pct = 0.3
-            unclear_pct = 4.0
-            no_person_pct = 0.0
-        elif active_state == ActivityState.SITTING:
-            sitting_pct = 76.5
-            standing_pct = 12.0
-            lying_pct = 4.0
-            walking_pct = 2.0
-            fall_pct = 1.5
-            unclear_pct = 4.0
-            no_person_pct = 0.0
-        else:
-            unclear_pct = 55.0
-            standing_pct = 15.0
-            sitting_pct = 15.0
-            walking_pct = 5.0
-            lying_pct = 5.0
-            fall_pct = 5.0
-            no_person_pct = 0.0
+        # 1. Continuous Kinematic Affinity Scores
+        torso_upright = max(0.0, min(1.0, 1.0 - obs.torso_angle / 45.0))
+        shoulder_level = max(0.0, min(1.0, 1.0 - obs.shoulder_tilt / 35.0))
 
-        items = [
-            {"label": "POSSIBLE FALL · REVIEW", "percent": fall_pct},
-            {"label": "LYING / RESTING", "percent": lying_pct},
-            {"label": "SITTING", "percent": sitting_pct},
-            {"label": "STANDING", "percent": standing_pct},
-            {"label": "WALKING", "percent": walking_pct},
-            {"label": "UNCLEAR / OTHER", "percent": unclear_pct},
-            {"label": "NO PERSON VISIBLE", "percent": no_person_pct},
-        ]
+        # --- Sitting Affinity ---
+        if obs.has_legs_visible:
+            knee_flex = max(0.0, min(1.0, (155.0 - obs.knee_angle) / 60.0))
+            score_sit = 3.2 * torso_upright * (0.35 + 0.65 * knee_flex) + 0.3
+        else:
+            # Desk mode: seated window between 0.20 and 0.55
+            head_in_seat_zone = max(0.0, min(1.0, 1.0 - abs(obs.head_y - 0.35) / 0.28))
+            score_sit = 3.4 * torso_upright * shoulder_level * (0.45 + 0.55 * head_in_seat_zone) + 0.5
+
+        # --- Standing Affinity ---
+        if obs.has_legs_visible:
+            knee_straight = max(0.0, min(1.0, (obs.knee_angle - 130.0) / 45.0))
+            height_factor = max(0.0, min(1.0, (obs.relative_body_height - 0.55) / 0.35))
+            score_stand = 3.3 * knee_straight * height_factor * torso_upright
+        else:
+            rise_factor = max(0.0, min(1.0, (0.30 - obs.head_y) / 0.18))
+            score_stand = 3.6 * rise_factor * torso_upright
+
+        # --- Bending / Forward Tilt Affinity ---
+        neck_flex = max(0.0, min(1.0, (obs.neck_angle - 15.0) / 32.0))
+        torso_stoop = max(0.0, min(1.0, 1.0 - abs(obs.torso_angle - 35.0) / 22.0))
+        score_bend = 2.8 * max(neck_flex, torso_stoop)
+
+        # --- Walking Affinity ---
+        if obs.has_legs_visible:
+            move_factor = max(0.0, min(1.0, obs.movement_velocity / 0.22))
+            score_walk = 3.2 * move_factor * torso_upright
+        else:
+            # Upper body gestures do not indicate walking
+            score_walk = 0.08 * max(0.0, min(1.0, obs.movement_velocity / 0.30))
+
+        # --- Lying / Resting Affinity ---
+        torso_flat = max(0.0, min(1.0, (obs.torso_angle - 45.0) / 35.0))
+        shoulder_flat = max(0.0, min(1.0, (obs.shoulder_tilt - 35.0) / 35.0))
+        score_lying = 3.2 * max(torso_flat, shoulder_flat)
+        if obs.in_zone in ("BED", "SOFA"):
+            score_lying += 1.8
+
+        # --- Possible Fall / Emergency Affinity ---
+        score_fall = 4.2 * max(0.0, min(1.0, risk_score))
+        if active_state == ActivityState.LYING_ON_FLOOR:
+            score_fall = max(score_fall, 3.8)
+        if obs.floor_proximity <= 0.20 and obs.torso_angle >= 50.0:
+            score_fall += 2.0
+
+        # --- Ambient Uncertainty Affinity ---
+        score_unclear = 0.22 + 0.6 * max(0.0, 1.0 - obs.confidence)
+
+        # Softmax temperature-scaled normalization
+        raw_scores = {
+            "SITTING": max(0.01, score_sit),
+            "STANDING": max(0.01, score_stand),
+            "BENDING / FORWARD TILT": max(0.01, score_bend),
+            "WALKING": max(0.01, score_walk),
+            "LYING / RESTING": max(0.01, score_lying),
+            "POSSIBLE FALL · REVIEW": max(0.01, score_fall),
+            "UNCLEAR / OTHER": max(0.01, score_unclear),
+        }
+
+        # Temperature parameter controls contrast sharpness
+        temp = 1.05
+        exp_scores = {k: np.exp(v / temp) for k, v in raw_scores.items()}
+        total_exp = sum(exp_scores.values())
+
+        percentages: Dict[str, float] = {}
+        for k, v in exp_scores.items():
+            percentages[k] = round((v / total_exp) * 100.0, 1)
+
+        # Ensure total sums cleanly to 100%
+        rem = 100.0 - sum(percentages.values())
+        top_key = max(percentages, key=percentages.get)
+        percentages[top_key] = round(percentages[top_key] + rem, 1)
+
+        # Format items sorted descending by percentage
+        items = [{"label": k, "percent": max(0.0, p)} for k, p in percentages.items()]
+        items.append({"label": "NO PERSON VISIBLE", "percent": 0.0})
         items.sort(key=lambda x: x["percent"], reverse=True)
         return items
 
@@ -205,6 +239,11 @@ class ActivityClassifier:
                 return (
                     f"REPEATED FAILED STANDING ATTEMPTS ({failed_attempts}X). PERSON IN CHAIR; "
                     f"INSTABILITY OR MUSCLE FATIGUE IDENTIFIED. PHYSICAL ASSISTANCE ADVISED."
+                )
+            if obs.neck_angle > 25.0:
+                return (
+                    f"PERSON SEATED AT DESK / WORKSTATION — HEAD/NECK TILTED FORWARD ({obs.neck_angle:.0f} DEG). "
+                    f"TORSO ANGLE: {obs.torso_angle:.0f} DEG; STABLE POSTURE."
                 )
             if not obs.has_legs_visible:
                 return (

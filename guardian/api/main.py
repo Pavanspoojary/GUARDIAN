@@ -404,6 +404,8 @@ def _format_frame_response(result: Dict[str, Any], now: float) -> Dict[str, Any]
             head_y=track.get("head_y", 0.35),
             shoulder_y=track.get("shoulder_y", 0.45),
             has_legs_visible=track.get("has_legs_visible", True),
+            neck_angle=track.get("neck_angle", 0.0),
+            shoulder_tilt=track.get("shoulder_tilt", 0.0),
         )
 
         highest_risk = 0.0

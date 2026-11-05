@@ -56,8 +56,47 @@ class FeatureExtractor:
         r_hip = lms.get(KEY_RIGHT_HIP, (0.5, 0.5, 0.5))[:2]
         hip_mid = compute_midpoint(l_hip, r_hip)
 
-        # 2. Torso angle with vertical (0 = vertical upright, 90 = horizontal)
-        torso_angle = compute_angle_with_vertical(sh_mid, hip_mid)
+        # 2. Anatomical angles: Shoulder tilt, Neck flexion, and True Torso orientation
+        # Shoulder tilt with horizontal (0 = level shoulders, 90 = vertical)
+        sh_dx = r_sh[0] - l_sh[0]
+        sh_dy = r_sh[1] - l_sh[1]
+        sh_len = np.hypot(sh_dx, sh_dy)
+        if sh_len > 1e-5:
+            shoulder_tilt = round(float(np.degrees(np.arcsin(min(1.0, abs(sh_dy) / sh_len)))), 1)
+        else:
+            shoulder_tilt = 0.0
+
+        # Neck angle with vertical (0 = upright facing forward, > 25 = bending neck/looking down)
+        nose_lm = lms.get(KEY_NOSE)
+        if nose_lm:
+            neck_dx = nose_lm[0] - sh_mid[0]
+            neck_dy = nose_lm[1] - sh_mid[1]
+            neck_len = np.hypot(neck_dx, neck_dy)
+            if neck_len > 1e-5:
+                if neck_dy >= -0.06:
+                    neck_angle = round(float(np.degrees(np.arctan2(abs(neck_dx), 0.05))) + 35.0, 1)
+                else:
+                    neck_angle = round(float(np.degrees(np.arctan2(abs(neck_dx), abs(neck_dy)))), 1)
+            else:
+                neck_angle = 0.0
+        else:
+            neck_angle = 0.0
+
+        # True Torso angle with vertical (0 = vertical upright, 90 = horizontal):
+        # Validate whether hips are genuinely detected with sufficient Euclidean separation from shoulders
+        l_hip_raw = lms.get(KEY_LEFT_HIP)
+        r_hip_raw = lms.get(KEY_RIGHT_HIP)
+        hips_detected = bool(
+            (l_hip_raw and (len(l_hip_raw) < 3 or l_hip_raw[2] >= 0.30)) or
+            (r_hip_raw and (len(r_hip_raw) < 3 or r_hip_raw[2] >= 0.30))
+        )
+        sh_hip_dist = float(np.hypot(hip_mid[0] - sh_mid[0], hip_mid[1] - sh_mid[1]))
+
+        if hips_detected and sh_hip_dist > 0.12:
+            torso_angle = compute_angle_with_vertical(sh_mid, hip_mid)
+        else:
+            # Desk mode with occluded hips: use shoulder tilt so neck bending never distorts torso orientation!
+            torso_angle = shoulder_tilt
 
         # 3. Relative body height from bounding box
         ymin, xmin, ymax, xmax = pose.bbox
@@ -155,4 +194,6 @@ class FeatureExtractor:
             head_y=head_y,
             shoulder_y=shoulder_y,
             has_legs_visible=has_legs_visible,
+            neck_angle=neck_angle,
+            shoulder_tilt=shoulder_tilt,
         )

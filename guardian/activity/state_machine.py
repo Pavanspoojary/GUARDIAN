@@ -63,6 +63,8 @@ class MovementObservation:
     head_y: float = 0.35
     shoulder_y: float = 0.45
     has_legs_visible: bool = True
+    neck_angle: float = 0.0
+    shoulder_tilt: float = 0.0
 
 
 class PersonStateMachine:

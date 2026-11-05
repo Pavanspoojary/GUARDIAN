@@ -189,6 +189,8 @@ class GuardianEngine:
                 "floor_proximity": obs.floor_proximity,
                 "vertical_velocity": obs.vertical_velocity,
                 "movement_velocity": obs.movement_velocity,
+                "neck_angle": obs.neck_angle,
+                "shoulder_tilt": obs.shoulder_tilt,
             })
 
         # Check for incident escalations

@@ -228,3 +228,42 @@ def test_anatomical_knee_flexion_distinguishes_sitting_from_standing():
         has_legs_visible=True,
     )
     assert classifier.classify_frame(obs_standing) == ActivityState.STANDING
+
+
+def test_neck_bending_at_desk_does_not_trigger_lying():
+    """Verify bending neck/looking down while seated maintains sitting and does not trigger lying."""
+    from guardian.activity.activity_classifier import ActivityClassifier
+
+    classifier = ActivityClassifier()
+
+    # User sits at desk and bends neck down to look at keyboard/phone
+    obs_neck_bend = MovementObservation(
+        timestamp=300.0,
+        activity=ActivityState.UNKNOWN,
+        torso_angle=4.0,  # Shoulders remain level
+        relative_body_height=0.70,
+        vertical_velocity=0.0,
+        vertical_acceleration=0.0,
+        movement_velocity=0.01,
+        motion_intensity=0.03,
+        floor_proximity=0.55,
+        head_y=0.48,  # Nose moved down
+        shoulder_y=0.45,  # Shoulders still up
+        has_legs_visible=False,
+        neck_angle=38.0,
+        shoulder_tilt=2.0,
+    )
+    # Must remain SITTING, never LYING or LYING_ON_FLOOR
+    assert classifier.classify_frame(obs_neck_bend) == ActivityState.SITTING
+
+    # Check continuous distribution breakdown
+    dist = classifier.compute_distribution(obs_neck_bend, ActivityState.SITTING)
+    dist_map = {item["label"]: item["percent"] for item in dist}
+
+    # SITTING should be highest or among the top
+    assert dist_map["SITTING"] > 40.0
+    # Bending should have noticeable affinity
+    assert dist_map["BENDING / FORWARD TILT"] > 5.0
+    # Lying must be minimal
+    assert dist_map["LYING / RESTING"] < 5.0
+    assert dist_map["POSSIBLE FALL · REVIEW"] < 5.0

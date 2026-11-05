@@ -246,7 +246,7 @@ Run the full deterministic test suite:
 pytest tests -v
 ```
 
-All 20 automated tests verify public seams, posture math, state machine transitions, and rule prioritization.
+All 21 automated tests verify public seams, posture math, state machine transitions, and rule prioritization.
 
 ---
 
