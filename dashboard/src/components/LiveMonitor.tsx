@@ -43,8 +43,8 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
   const [telemetry, setTelemetry] = useState<TelemetryState>({
     framesCount: 0,
     latencyMs: 14,
-    adaptiveFps: 5,
-    narrative: 'SYSTEM NOMINAL // DETERMINISTIC SENSORY PIPELINE ACTIVE',
+    adaptiveFps: 4,
+    narrative: 'SYSTEM NOMINAL // SENSORY PIPELINE ACTIVE',
     distribution: [
       { label: 'SITTING', percent: 80.0 },
       { label: 'STANDING', percent: 15.0 },
@@ -154,11 +154,11 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
     let isProcessing = false;
     let lastMotionTimestamp = Date.now();
 
-    // Create compact 320x240 offscreen canvas (matches MediaPipe 256x256 tensor input)
+    // Create compact 256x256 offscreen canvas (matches MediaPipe's exact native tensor input)
     if (!offscreenCanvasRef.current) {
       const oc = document.createElement('canvas');
-      oc.width = 320;
-      oc.height = 240;
+      oc.width = 256;
+      oc.height = 256;
       offscreenCanvasRef.current = oc;
     }
 
@@ -239,7 +239,7 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
               isProcessing = false;
               timeoutId = setTimeout(captureAndProcess, nextInterval);
             }
-          }, 'image/jpeg', 0.50);
+          }, 'image/jpeg', 0.45);
         } else {
           isProcessing = false;
           timeoutId = setTimeout(captureAndProcess, nextInterval);

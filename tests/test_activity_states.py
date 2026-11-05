@@ -131,3 +131,100 @@ def test_failed_standing_attempts_detection():
         floor_proximity=0.5,
     ))
     assert sm.failed_standing_attempts_count == 2
+
+
+def test_desk_webcam_sitting_and_chair_reclining():
+    """Verify accurate sitting classification and chair reclining without false falls in desk mode."""
+    from guardian.activity.activity_classifier import ActivityClassifier
+
+    classifier = ActivityClassifier()
+
+    # Seated at desk in front of webcam (legs out of frame, upright torso)
+    obs_desk = MovementObservation(
+        timestamp=100.0,
+        activity=ActivityState.UNKNOWN,
+        torso_angle=8.0,
+        relative_body_height=0.75,
+        vertical_velocity=0.0,
+        vertical_acceleration=0.0,
+        movement_velocity=0.01,
+        motion_intensity=0.02,
+        floor_proximity=0.55,
+        head_y=0.30,
+        shoulder_y=0.45,
+        has_legs_visible=False,
+    )
+    assert classifier.classify_frame(obs_desk) == ActivityState.SITTING
+
+    # Reclining back in office chair (torso at 50 degrees, but head still elevated)
+    obs_recline = MovementObservation(
+        timestamp=101.0,
+        activity=ActivityState.UNKNOWN,
+        torso_angle=50.0,
+        relative_body_height=0.65,
+        vertical_velocity=0.0,
+        vertical_acceleration=0.0,
+        movement_velocity=0.0,
+        motion_intensity=0.02,
+        floor_proximity=0.55,
+        head_y=0.38,
+        shoulder_y=0.50,
+        has_legs_visible=False,
+    )
+    assert classifier.classify_frame(obs_recline) == ActivityState.SITTING
+
+    # True fall / collapse to floor (head drops low)
+    obs_collapse = MovementObservation(
+        timestamp=102.0,
+        activity=ActivityState.UNKNOWN,
+        torso_angle=65.0,
+        relative_body_height=0.40,
+        vertical_velocity=0.8,
+        vertical_acceleration=0.2,
+        movement_velocity=0.0,
+        motion_intensity=0.1,
+        floor_proximity=0.15,
+        head_y=0.75,
+        shoulder_y=0.70,
+        has_legs_visible=False,
+    )
+    assert classifier.classify_frame(obs_collapse) == ActivityState.LYING_ON_FLOOR
+
+
+def test_anatomical_knee_flexion_distinguishes_sitting_from_standing():
+    """Verify knee flexion angle cleanly separates sitting (bent knee) from standing (straight knee)."""
+    from guardian.activity.activity_classifier import ActivityClassifier
+
+    classifier = ActivityClassifier()
+
+    # Full body visible: bent knee (sitting on chair)
+    obs_chair = MovementObservation(
+        timestamp=200.0,
+        activity=ActivityState.UNKNOWN,
+        torso_angle=12.0,
+        relative_body_height=0.68,
+        vertical_velocity=0.0,
+        vertical_acceleration=0.0,
+        movement_velocity=0.0,
+        motion_intensity=0.01,
+        floor_proximity=0.4,
+        knee_angle=95.0,
+        has_legs_visible=True,
+    )
+    assert classifier.classify_frame(obs_chair) == ActivityState.SITTING
+
+    # Full body visible: straight knee (standing upright)
+    obs_standing = MovementObservation(
+        timestamp=201.0,
+        activity=ActivityState.UNKNOWN,
+        torso_angle=5.0,
+        relative_body_height=0.88,
+        vertical_velocity=0.0,
+        vertical_acceleration=0.0,
+        movement_velocity=0.0,
+        motion_intensity=0.02,
+        floor_proximity=0.85,
+        knee_angle=172.0,
+        has_legs_visible=True,
+    )
+    assert classifier.classify_frame(obs_standing) == ActivityState.STANDING

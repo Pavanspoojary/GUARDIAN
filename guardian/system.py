@@ -182,6 +182,13 @@ class GuardianEngine:
                 "zone": zone_name,
                 "confidence": obs.confidence,
                 "landmarks": track.pose.landmarks,
+                "knee_angle": obs.knee_angle,
+                "head_y": obs.head_y,
+                "shoulder_y": obs.shoulder_y,
+                "has_legs_visible": obs.has_legs_visible,
+                "floor_proximity": obs.floor_proximity,
+                "vertical_velocity": obs.vertical_velocity,
+                "movement_velocity": obs.movement_velocity,
             })
 
         # Check for incident escalations

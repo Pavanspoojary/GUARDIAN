@@ -9,6 +9,7 @@ from guardian.perception.geometry import (
     compute_angle_with_vertical,
     compute_midpoint,
     compute_distance,
+    compute_joint_angle,
 )
 from guardian.perception.pose_estimator import (
     PoseDetectionResult,
@@ -62,14 +63,53 @@ class FeatureExtractor:
         ymin, xmin, ymax, xmax = pose.bbox
         body_height = max(0.01, min(1.0, ymax - ymin))
 
-        # 4. Floor proximity
-        l_ank = lms.get(KEY_LEFT_ANKLE, (0.5, 0.8, 0.5))[:2]
-        r_ank = lms.get(KEY_RIGHT_ANKLE, (0.5, 0.8, 0.5))[:2]
-        lowest_y = max(l_ank[1], r_ank[1], ymax)
-        floor_dist = abs(floor_y - lowest_y)
-        floor_proximity = max(0.0, min(1.0, floor_dist))
+        # 4. Joint angles & anatomical landmark visibility
+        l_knee = lms.get(KEY_LEFT_KNEE)
+        r_knee = lms.get(KEY_RIGHT_KNEE)
+        l_ank = lms.get(KEY_LEFT_ANKLE)
+        r_ank = lms.get(KEY_RIGHT_ANKLE)
 
-        # 5. Kinematics from historical frame delta
+        # A leg is visible if knee or ankle is present, has adequate confidence, and is within frame bounds (< 0.94)
+        l_knee_visible = bool(l_knee and (len(l_knee) < 3 or l_knee[2] >= 0.35) and l_knee[1] < 0.94)
+        r_knee_visible = bool(r_knee and (len(r_knee) < 3 or r_knee[2] >= 0.35) and r_knee[1] < 0.94)
+        l_ank_visible = bool(l_ank and (len(l_ank) < 3 or l_ank[2] >= 0.30) and l_ank[1] < 0.96)
+        r_ank_visible = bool(r_ank and (len(r_ank) < 3 or r_ank[2] >= 0.30) and r_ank[1] < 0.96)
+        has_legs_visible = l_knee_visible or r_knee_visible or l_ank_visible or r_ank_visible
+
+        # Compute knee flexion angle
+        knee_angles: List[float] = []
+        if l_knee_visible and l_ank and (len(l_ank) < 3 or l_ank[2] >= 0.25):
+            ang_l = compute_joint_angle(l_hip, l_knee[:2], l_ank[:2])
+            knee_angles.append(ang_l)
+        if r_knee_visible and r_ank and (len(r_ank) < 3 or r_ank[2] >= 0.25):
+            ang_r = compute_joint_angle(r_hip, r_knee[:2], r_ank[:2])
+            knee_angles.append(ang_r)
+
+        knee_angle = round(float(np.mean(knee_angles)), 1) if knee_angles else 180.0
+
+        # Head and shoulder vertical levels
+        nose_lm = lms.get(KEY_NOSE)
+        head_y = round(float(nose_lm[1]), 3) if nose_lm else round(float(ymin), 3)
+        shoulder_y = round(float(sh_mid[1]), 3)
+
+        # 5. Floor proximity
+        if has_legs_visible:
+            lowest_y = max(
+                (l_ank[1] if l_ank else 0.0),
+                (r_ank[1] if r_ank else 0.0),
+                ymax,
+            )
+            floor_dist = abs(floor_y - lowest_y)
+            floor_proximity = max(0.0, min(1.0, floor_dist))
+        else:
+            # Desk/webcam mode: bounding box bottom is just the desk/table cutoff, NOT the room floor!
+            # Only if the person's head/shoulders drop significantly does proximity to floor drop.
+            if head_y >= 0.65:
+                floor_proximity = 0.15
+            else:
+                floor_proximity = 0.55
+
+        # 6. Kinematics from historical frame delta
         vert_vel = 0.0
         vert_accel = 0.0
         move_vel = 0.0
@@ -111,4 +151,8 @@ class FeatureExtractor:
             floor_proximity=floor_proximity,
             in_zone=zone_name,
             confidence=pose.confidence,
+            knee_angle=knee_angle,
+            head_y=head_y,
+            shoulder_y=shoulder_y,
+            has_legs_visible=has_legs_visible,
         )

@@ -16,36 +16,74 @@ class ActivityClassifier:
         self._history: Dict[str, Deque[ActivityState]] = {}
 
     def classify_frame(self, obs: MovementObservation) -> ActivityState:
-        """Single-frame deterministic classification based on geometric & kinematic thresholds."""
-        # 1. Recumbent postures: Torso angle >= 50 or low relative height with flat angle
-        is_recumbent = (
-            obs.torso_angle >= 50.0
-            or (obs.relative_body_height <= 0.22 and obs.torso_angle >= 35.0)
-            or (obs.floor_proximity <= 0.20 and obs.torso_angle >= 40.0)
-        )
-        if is_recumbent:
-            if obs.floor_proximity <= 0.25 or obs.in_zone == "FLOOR":
-                return ActivityState.LYING_ON_FLOOR
-            return ActivityState.LYING
+        """Deterministic posture & activity classification using anatomical geometry."""
+        # Dual-mode classification based on whether lower limbs are visible in frame
+        if obs.has_legs_visible:
+            # --- FULL-BODY VISIBILITY MODE ---
+            # 1. Recumbent postures: Torso horizontal and low to floor plane
+            is_recumbent = (
+                obs.torso_angle >= 50.0
+                and (obs.floor_proximity <= 0.25 or obs.relative_body_height <= 0.35 or obs.in_zone == "FLOOR")
+            )
+            if is_recumbent:
+                if obs.floor_proximity <= 0.25 or obs.in_zone == "FLOOR":
+                    return ActivityState.LYING_ON_FLOOR
+                return ActivityState.LYING
 
-        # 2. Upright postures: Torso angle < 30 degrees
-        if obs.torso_angle < 30.0:
-            if obs.relative_body_height >= 0.55:
-                if obs.movement_velocity >= 0.12 or obs.motion_intensity >= 0.22:
-                    return ActivityState.WALKING
-                return ActivityState.STANDING
-            elif 0.22 <= obs.relative_body_height < 0.55:
+            # 2. Sitting: Bent knees (flexion angle < 140 deg) with upright/semi-upright torso
+            if obs.knee_angle < 140.0 and obs.torso_angle < 50.0:
                 return ActivityState.SITTING
 
-        # 3. Intermediate sitting: Torso angle between 30 and 50 degrees
-        if 30.0 <= obs.torso_angle < 50.0 and obs.relative_body_height < 0.65:
+            # 3. Upright Standing / Walking: Straight legs (knee angle >= 140 deg)
+            if obs.torso_angle < 35.0:
+                if obs.relative_body_height >= 0.55 and obs.knee_angle >= 140.0:
+                    if obs.movement_velocity >= 0.12 or obs.motion_intensity >= 0.22:
+                        return ActivityState.WALKING
+                    return ActivityState.STANDING
+                elif 0.22 <= obs.relative_body_height < 0.55:
+                    return ActivityState.SITTING
+                else:
+                    return ActivityState.STANDING
+
+            # 4. Intermediate sitting: Torso angle between 30 and 50 degrees
+            if 30.0 <= obs.torso_angle < 50.0 and obs.relative_body_height < 0.65:
+                return ActivityState.SITTING
+
+            # 5. In-between / dynamic transition
+            if obs.motion_intensity > 0.15 or abs(obs.vertical_velocity) > 0.2:
+                return ActivityState.TRANSITIONING
+
+            return ActivityState.UNKNOWN
+
+        else:
+            # --- DESK / WEBCAM UPPER-BODY MODE ---
+            # Legs are hidden below desk or cropped off by close-up framing
+
+            # 1. Floor collapse / Fall check:
+            # Head drops low into lower frame (head_y >= 0.65), or flat torso with dropped shoulders
+            if obs.head_y >= 0.65 or (obs.torso_angle >= 60.0 and obs.shoulder_y >= 0.60):
+                return ActivityState.LYING_ON_FLOOR
+
+            # 2. Reclining in chair:
+            # Person leans back (torso angle 40-75 deg), but head is still elevated above desk
+            if 40.0 <= obs.torso_angle < 75.0 and obs.head_y < 0.55:
+                return ActivityState.SITTING
+
+            # 3. Standing up at desk:
+            # Head rises to the top border (< 0.18) and shoulders rise (< 0.28) with upright torso
+            if obs.head_y < 0.18 and obs.shoulder_y < 0.28 and obs.torso_angle < 30.0:
+                return ActivityState.STANDING
+
+            # 4. Seated at desk / webcam:
+            # Head in normal upper-middle window (head_y >= 0.18) and upright torso (< 45 deg)
+            if obs.torso_angle < 45.0:
+                return ActivityState.SITTING
+
+            # 5. Dynamic movement / transition (head movement / gestures while seated remain SITTING)
+            if abs(obs.vertical_velocity) > 0.35:
+                return ActivityState.TRANSITIONING
+
             return ActivityState.SITTING
-
-        # 4. In-between / dynamic transition
-        if obs.motion_intensity > 0.15 or abs(obs.vertical_velocity) > 0.2:
-            return ActivityState.TRANSITIONING
-
-        return ActivityState.UNKNOWN
 
     def compute_distribution(
         self,
@@ -168,8 +206,13 @@ class ActivityClassifier:
                     f"REPEATED FAILED STANDING ATTEMPTS ({failed_attempts}X). PERSON IN CHAIR; "
                     f"INSTABILITY OR MUSCLE FATIGUE IDENTIFIED. PHYSICAL ASSISTANCE ADVISED."
                 )
+            if not obs.has_legs_visible:
+                return (
+                    f"PERSON SEATED AT DESK / WORKSTATION ({duration:.0f}S). "
+                    f"TORSO ANGLE: {obs.torso_angle:.0f} DEG; STABLE POSITION."
+                )
             return (
-                f"PERSON SEATED UPRIGHT FACING FORWARD ({duration:.0f}S). "
+                f"PERSON SEATED IN CHAIR ({duration:.0f}S). KNEE ANGLE: {obs.knee_angle:.0f} DEG; "
                 f"TORSO ANGLE: {obs.torso_angle:.0f} DEG; NORMAL SITTING STABILITY."
             )
 

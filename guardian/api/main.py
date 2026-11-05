@@ -394,12 +394,16 @@ def _format_frame_response(result: Dict[str, Any], now: float) -> Dict[str, Any]
             activity=act,
             torso_angle=track["torso_angle"],
             relative_body_height=track["relative_body_height"],
-            vertical_velocity=0.0,
+            vertical_velocity=track.get("vertical_velocity", 0.0),
             vertical_acceleration=0.0,
-            movement_velocity=0.0,
+            movement_velocity=track.get("movement_velocity", 0.0),
             motion_intensity=track["motion_intensity"],
-            floor_proximity=0.5,
+            floor_proximity=track.get("floor_proximity", 0.5),
             confidence=track["confidence"],
+            knee_angle=track.get("knee_angle", 180.0),
+            head_y=track.get("head_y", 0.35),
+            shoulder_y=track.get("shoulder_y", 0.45),
+            has_legs_visible=track.get("has_legs_visible", True),
         )
 
         highest_risk = 0.0

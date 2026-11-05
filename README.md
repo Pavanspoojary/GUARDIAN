@@ -87,8 +87,16 @@ Computer vision models (MediaPipe Tasks Pose Landmarker) are used strictly as se
   - **Floor Proximity**: Distance between lowest joints (ankles) and calibrated floor plane.
 
 ### Layer 4: Deterministic Activity Classifier (`guardian.activity.activity_classifier`)
-- Classifies human state: `STANDING`, `WALKING`, `SITTING`, `LYING`, `LYING_ON_FLOOR`, `TRANSITIONING`, `UNKNOWN`.
-- Employs temporal hysteresis with sliding consensus windows to eliminate single-frame posture jitter.
+- Dual-mode classification based on anatomical visibility:
+  - **Full-Body Mode (`has_legs_visible=True`)**:
+    - **Sitting**: Evaluates knee flexion angle ($\text{KneeAngle} < 140^\circ$) formed by hip, knee, and ankle vectors.
+    - **Standing / Walking**: Straight legs ($\text{KneeAngle} \ge 140^\circ$) and upright torso. Walking differentiated via horizontal locomotion velocity.
+    - **Floor Recumbency / Falls**: Torso angle $\ge 50^\circ$ and floor proximity $\le 0.25$ or low height.
+  - **Desk / Webcam Mode (`has_legs_visible=False`)**:
+    - Optimizes for close-up laptop/webcam framing where legs are occluded beneath a desk.
+    - Accurately classifies upright seated posture ($75\text{--}80\%$ sitting confidence).
+    - Distinguishes leaning back in an office chair (elevated head) from actual floor falls (head drop $Y \ge 0.65$).
+- Temporal hysteresis with sliding consensus windows to eliminate single-frame posture jitter.
 - High-salience override: Sudden vertical descents ($>0.4$ m/s) or recumbent postures immediately bypass smoothing to ensure rapid detection.
 - Computes deterministic percentage breakdowns matching surveillance formats.
 
@@ -238,7 +246,7 @@ Run the full deterministic test suite:
 pytest tests -v
 ```
 
-All 18 automated tests verify public seams, posture math, state machine transitions, and rule prioritization.
+All 20 automated tests verify public seams, posture math, state machine transitions, and rule prioritization.
 
 ---
 

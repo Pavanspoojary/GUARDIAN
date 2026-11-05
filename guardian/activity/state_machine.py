@@ -59,6 +59,10 @@ class MovementObservation:
     floor_proximity: float  # Distance to calibrated floor level [0.0 = on floor, 1.0 = top of frame]
     in_zone: Optional[str] = None  # e.g. "BED", "SOFA", "FLOOR", "SAFE", "RESTRICTED"
     confidence: float = 1.0
+    knee_angle: float = 180.0
+    head_y: float = 0.35
+    shoulder_y: float = 0.45
+    has_legs_visible: bool = True
 
 
 class PersonStateMachine:
