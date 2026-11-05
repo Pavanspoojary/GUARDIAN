@@ -17,21 +17,19 @@ export const App: React.FC = () => {
   const [cameraStatus, setCameraStatus] = useState<string>('ONLINE');
   const [wsConnected, setWsConnected] = useState<boolean>(false);
 
-  // Fetch data from backend
+  // Fetch initial data from backend (rules & zones are static)
   const fetchData = useCallback(async () => {
     try {
-      const [incRes, rulesRes, zonesRes, logsRes, healthRes] = await Promise.all([
+      const [incRes, rulesRes, zonesRes, healthRes] = await Promise.all([
         fetch('/api/incidents'),
         fetch('/api/rules'),
         fetch('/api/zones'),
-        fetch('/api/audit-logs'),
         fetch('/api/health'),
       ]);
 
       if (incRes.ok) setIncidents(await incRes.json());
       if (rulesRes.ok) setRules(await rulesRes.json());
       if (zonesRes.ok) setZones(await zonesRes.json());
-      if (logsRes.ok) setAuditLogs(await logsRes.json());
       if (healthRes.ok) {
         const h = await healthRes.json();
         setCameraStatus(h.camera_status);
@@ -46,7 +44,17 @@ export const App: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  // WebSocket connection for real-time telemetry
+  // Load audit logs only when viewing logs tab
+  useEffect(() => {
+    if (activeTab === 'logs') {
+      fetch('/api/audit-logs')
+        .then((r) => r.ok && r.json())
+        .then((logs) => logs && setAuditLogs(logs))
+        .catch((err) => console.warn('Audit logs load error:', err));
+    }
+  }, [activeTab]);
+
+  // WebSocket connection for real-time telemetry (zero polling loops)
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/live`;
@@ -64,8 +72,19 @@ export const App: React.FC = () => {
         try {
           const data = JSON.parse(event.data);
           if (data.camera_status) setCameraStatus(data.camera_status);
-          if (data.active_incidents) {
-            fetchData();
+
+          // Only sync full incidents when count actually changes (prevents 10 req/s spam)
+          if (data.active_incidents && Array.isArray(data.active_incidents)) {
+            setIncidents((prev) => {
+              const prevActiveCount = prev.filter((i) => i.status !== 'RESOLVED').length;
+              if (data.active_incidents.length !== prevActiveCount) {
+                fetch('/api/incidents')
+                  .then((r) => r.ok && r.json())
+                  .then((updated) => updated && setIncidents(updated))
+                  .catch((err) => console.warn('Incidents sync error:', err));
+              }
+              return prev;
+            });
           }
         } catch (e) {
           console.error('WebSocket parse error:', e);
@@ -88,7 +107,7 @@ export const App: React.FC = () => {
       if (ws) ws.close();
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
     };
-  }, [fetchData]);
+  }, []);
 
   // Acknowledge incident
   const handleAcknowledge = async (incidentId: string, operator: string, notes: string) => {

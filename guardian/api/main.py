@@ -547,6 +547,6 @@ async def websocket_live_stream(websocket: WebSocket):
                     "active_incidents": active_incidents_data,
                 }
                 await websocket.send_text(json.dumps(payload))
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.5)
     except WebSocketDisconnect:
         pass

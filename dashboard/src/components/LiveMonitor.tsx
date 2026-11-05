@@ -9,6 +9,19 @@ interface LiveMonitorProps {
   onResolve?: (incidentId: string, operator: string, notes: string) => Promise<void>;
 }
 
+interface TelemetryState {
+  framesCount: number;
+  latencyMs: number;
+  adaptiveFps: number;
+  narrative: string;
+  distribution: ActivityDistributionItem[];
+  activeState: string;
+  torsoAngle: number;
+  relativeHeight: number;
+  motionIntensity: number;
+  motionlessDuration: number;
+}
+
 export const LiveMonitor: React.FC<LiveMonitorProps> = ({
   onIncidentTriggered,
   activeIncidents = [],
@@ -24,31 +37,31 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
   const [cameraReady, setCameraReady] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isHudVisible, setIsHudVisible] = useState<boolean>(true);
-
-  // High efficiency telemetry HUD states
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
-  const [framesCount, setFramesCount] = useState<number>(0);
-  const [latencyMs, setLatencyMs] = useState<number>(18);
-  const [adaptiveFps, setAdaptiveFps] = useState<number>(15);
-  const [narrative, setNarrative] = useState<string>('ANALYZING LIVE CAMERA FEED // SYSTEM NOMINAL');
-  const [distribution, setDistribution] = useState<ActivityDistributionItem[]>([
-    { label: 'SITTING', percent: 80.0 },
-    { label: 'STANDING', percent: 15.0 },
-    { label: 'WALKING', percent: 5.0 },
-    { label: 'UNCLEAR / OTHER', percent: 0.0 },
-    { label: 'LYING / RESTING', percent: 0.0 },
-    { label: 'POSSIBLE FALL · REVIEW', percent: 0.0 },
-    { label: 'NO PERSON VISIBLE', percent: 0.0 },
-  ]);
-  const [activeState, setActiveState] = useState<string>('SITTING');
-  const [kinematics, setKinematics] = useState({
+
+  // Single batched telemetry state to eliminate multiple React re-renders per frame
+  const [telemetry, setTelemetry] = useState<TelemetryState>({
+    framesCount: 0,
+    latencyMs: 14,
+    adaptiveFps: 5,
+    narrative: 'SYSTEM NOMINAL // DETERMINISTIC SENSORY PIPELINE ACTIVE',
+    distribution: [
+      { label: 'SITTING', percent: 80.0 },
+      { label: 'STANDING', percent: 15.0 },
+      { label: 'WALKING', percent: 5.0 },
+      { label: 'UNCLEAR / OTHER', percent: 0.0 },
+      { label: 'LYING / RESTING', percent: 0.0 },
+      { label: 'POSSIBLE FALL · REVIEW', percent: 0.0 },
+      { label: 'NO PERSON VISIBLE', percent: 0.0 },
+    ],
+    activeState: 'SITTING',
     torsoAngle: 5.0,
     relativeHeight: 0.70,
     motionIntensity: 0.01,
     motionlessDuration: 0.0,
   });
 
-  // Start webcam
+  // Start webcam with efficient 640x480 resolution (zero sensor overload)
   const startWebcam = useCallback(async () => {
     setCameraError(null);
     setCameraReady(false);
@@ -60,7 +73,7 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
         audio: false,
       });
 
@@ -68,6 +81,10 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
         videoRef.current.srcObject = stream;
         videoRef.current.muted = true;
         videoRef.current.onloadedmetadata = () => {
+          if (canvasRef.current && videoRef.current) {
+            canvasRef.current.width = videoRef.current.videoWidth || 640;
+            canvasRef.current.height = videoRef.current.videoHeight || 480;
+          }
           videoRef.current?.play().then(() => {
             setCameraReady(true);
             setIsPlaying(true);
@@ -121,7 +138,7 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
     };
   }, [startWebcam, stopWebcam]);
 
-  // Elapsed timer
+  // Elapsed timer (1-second tick)
   useEffect(() => {
     const timer = setInterval(() => {
       if (isPlaying && cameraReady) {
@@ -131,23 +148,23 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
     return () => clearInterval(timer);
   }, [isPlaying, cameraReady]);
 
-  // Ultra-efficient frame processing loop
+  // High-efficiency frame loop: 4-5 FPS is optimal for human fall & posture tracking
   useEffect(() => {
     let timeoutId: any;
     let isProcessing = false;
     let lastMotionTimestamp = Date.now();
 
-    // Create offscreen capture canvas for zero-overhead downsampling (384x288)
+    // Create compact 320x240 offscreen canvas (matches MediaPipe 256x256 tensor input)
     if (!offscreenCanvasRef.current) {
       const oc = document.createElement('canvas');
-      oc.width = 384;
-      oc.height = 288;
+      oc.width = 320;
+      oc.height = 240;
       offscreenCanvasRef.current = oc;
     }
 
     const captureAndProcess = async () => {
       if (!isPlaying || isProcessing) {
-        timeoutId = setTimeout(captureAndProcess, 100);
+        timeoutId = setTimeout(captureAndProcess, 200);
         return;
       }
 
@@ -155,25 +172,24 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
       const overlayCanvas = canvasRef.current;
       const offscreen = offscreenCanvasRef.current;
       if (!video || !overlayCanvas || !offscreen || video.readyState < 2) {
-        timeoutId = setTimeout(captureAndProcess, 100);
+        timeoutId = setTimeout(captureAndProcess, 200);
         return;
       }
 
       isProcessing = true;
       const t0 = performance.now();
 
-      // Adaptive throttle: If motion has been minimal for >3s, drop to 8 FPS to save system CPU
-      const isStill = (Date.now() - lastMotionTimestamp) > 3000;
-      const nextInterval = isStill ? 140 : 65; // ~7 FPS when resting, ~16 FPS when moving
-      setAdaptiveFps(isStill ? 8 : 16);
+      // Adaptive efficiency: 4 FPS (250ms) when resting/sitting, 6 FPS (160ms) when moving
+      const isStill = (Date.now() - lastMotionTimestamp) > 2500;
+      const nextInterval = isStill ? 250 : 160;
+      const currentFps = isStill ? 4 : 6;
 
       try {
-        // Draw video downsampled onto offscreen canvas (near-instant 384x288)
         const offCtx = offscreen.getContext('2d', { willReadFrequently: false });
         if (offCtx) {
           offCtx.drawImage(video, 0, 0, offscreen.width, offscreen.height);
 
-          // Use native async toBlob for zero main-thread freezing
+          // Asynchronous zero-copy binary JPEG blob (50% quality is optimal for pose landmarks, only ~5KB)
           offscreen.toBlob(async (blob) => {
             if (!blob) {
               isProcessing = false;
@@ -182,7 +198,6 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
             }
 
             try {
-              // Direct binary upload to FastAPI raw endpoint
               const res = await fetch('/api/process-live-frame-raw', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/octet-stream' },
@@ -191,38 +206,40 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
 
               if (res.ok) {
                 const data: LiveFrameResult = await res.json();
-                setFramesCount((f) => f + 1);
-                setNarrative(data.narrative);
-                setDistribution(data.distribution);
-                setActiveState(data.active_state);
+                const dt = Math.round(performance.now() - t0);
 
-                if (data.motion_intensity > 0.035) {
+                if (data.motion_intensity > 0.03) {
                   lastMotionTimestamp = Date.now();
                 }
 
-                setKinematics({
+                // Single batched state update per frame tick
+                setTelemetry((prev) => ({
+                  framesCount: prev.framesCount + 1,
+                  latencyMs: dt,
+                  adaptiveFps: currentFps,
+                  narrative: data.narrative,
+                  distribution: data.distribution,
+                  activeState: data.active_state,
                   torsoAngle: data.torso_angle,
                   relativeHeight: data.relative_body_height,
                   motionIntensity: data.motion_intensity,
                   motionlessDuration: data.motionless_duration,
-                });
+                }));
 
                 if (data.incidents && data.incidents.length > 0) {
                   onIncidentTriggered();
                 }
 
-                // Render skeleton overlay onto transparent overlay canvas
+                // Render skeleton overlay
                 renderOverlay(data.landmarks, data.bbox, data.active_state);
               }
             } catch (err) {
               // Frame dropped safely
             } finally {
-              const dt = Math.round(performance.now() - t0);
-              setLatencyMs(dt);
               isProcessing = false;
               timeoutId = setTimeout(captureAndProcess, nextInterval);
             }
-          }, 'image/jpeg', 0.55);
+          }, 'image/jpeg', 0.50);
         } else {
           isProcessing = false;
           timeoutId = setTimeout(captureAndProcess, nextInterval);
@@ -233,7 +250,7 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
       }
     };
 
-    timeoutId = setTimeout(captureAndProcess, 150);
+    timeoutId = setTimeout(captureAndProcess, 200);
     return () => clearTimeout(timeoutId);
   }, [isPlaying, onIncidentTriggered]);
 
@@ -248,7 +265,6 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Clear previous overlay
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (!showSkeleton || !lms || Object.keys(lms).length === 0) {
@@ -300,7 +316,7 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
     // Draw landmark points
     Object.values(lms).forEach(([x, y]) => {
       ctx.beginPath();
-      ctx.arc(x * width, y * height, 4.5, 0, Math.PI * 2);
+      ctx.arc(x * width, y * height, 4, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
     });
@@ -313,13 +329,12 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
       const bw = (xmax - xmin) * width;
       const bh = (ymax - ymin) * height;
 
-      // Outer box
       ctx.strokeStyle = strokeColor;
       ctx.lineWidth = 1.5;
       ctx.strokeRect(bx, by, bw, bh);
 
       // Corner target brackets
-      const cornerLen = Math.min(18, bw / 4, bh / 4);
+      const cornerLen = Math.min(16, bw / 4, bh / 4);
       ctx.lineWidth = 3;
 
       // Top-left
@@ -352,15 +367,15 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
 
       // State Tag
       ctx.fillStyle = strokeColor;
-      ctx.fillRect(bx, Math.max(0, by - 24), Math.min(220, bw + 40), 24);
+      ctx.fillRect(bx, Math.max(0, by - 22), Math.min(200, bw + 40), 22);
       ctx.fillStyle = '#000000';
       ctx.font = 'bold 11px JetBrains Mono, monospace';
-      ctx.fillText(`person_01: ${state}`, bx + 8, Math.max(16, by - 8));
+      ctx.fillText(`person_01: ${state}`, bx + 6, Math.max(15, by - 7));
     }
   };
 
-  const topActive = distribution[0] || { label: 'UNCLEAR', percent: 0 };
-  const isEmergency = topActive.label.includes('FALL') || activeState.includes('FALL');
+  const topActive = telemetry.distribution[0] || { label: 'UNCLEAR', percent: 0 };
+  const isEmergency = topActive.label.includes('FALL') || telemetry.activeState.includes('FALL');
   const urgentIncidents = activeIncidents.filter((i) => i.status !== 'RESOLVED');
 
   return (
@@ -370,7 +385,7 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
         isFullscreen ? 'fixed inset-0 z-50 h-screen' : 'h-[calc(100vh-76px)] rounded-2xl border border-slate-800 shadow-2xl'
       }`}
     >
-      {/* 1. Full Screen Video Layer (Hardware-accelerated) */}
+      {/* 1. Full Screen Video Layer (Native GPU-accelerated) */}
       <div className="relative w-full h-full flex items-center justify-center bg-black overflow-hidden">
         <video
           ref={videoRef}
@@ -383,8 +398,6 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
         {/* 2. Transparent Tactical Canvas Overlay directly on top */}
         <canvas
           ref={canvasRef}
-          width={1280}
-          height={720}
           className="absolute inset-0 w-full h-full object-cover pointer-events-none z-10"
         />
 
@@ -449,11 +462,11 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
 
               <div className="flex items-center space-x-2">
                 <span className="text-[10px] text-sky-400 font-semibold bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/30">
-                  {latencyMs}MS
+                  {telemetry.latencyMs}MS
                 </span>
                 <button
                   onClick={() => setIsHudVisible(false)}
-                  className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-850"
+                  className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-800"
                   title="Collapse HUD to Left"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -464,7 +477,7 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
             {/* Narrative Banner */}
             <div className="mt-3 text-[11px] uppercase tracking-wide font-mono text-slate-300 leading-relaxed bg-[#0b0f19] p-3 rounded-xl border border-slate-900 flex items-start space-x-2 shrink-0">
               <Activity className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-              <span className="line-clamp-3">{narrative}</span>
+              <span className="line-clamp-3">{telemetry.narrative}</span>
             </div>
 
             {/* 3-Row Telemetry Metrics (TIME, FRAMES, COST) */}
@@ -475,7 +488,7 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
               </div>
               <div>
                 <div className="text-[9px] text-slate-500 uppercase tracking-wider">FRAMES</div>
-                <div className="text-sm font-bold text-slate-100">{String(framesCount).padStart(4, '0')}</div>
+                <div className="text-sm font-bold text-slate-100">{String(telemetry.framesCount).padStart(4, '0')}</div>
               </div>
               <div>
                 <div className="text-[9px] text-slate-500 uppercase tracking-wider">CLOUD COST</div>
@@ -499,7 +512,7 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
 
             {/* Vertical Posture Distribution Breakdown Stack */}
             <div className="flex-1 space-y-1.5 overflow-y-auto pr-1 py-1 min-h-0">
-              {distribution.slice(1).map((item, idx) => (
+              {telemetry.distribution.slice(1).map((item, idx) => (
                 <div
                   key={idx}
                   className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-[#111622] hover:bg-[#161c2d] border border-slate-900/80 font-mono text-xs text-slate-300 transition-colors"
@@ -513,13 +526,13 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
             {/* Kinematics Status Footer */}
             <div className="pt-3 border-t border-slate-900 flex flex-col space-y-1 text-[10px] text-slate-500 font-mono uppercase shrink-0">
               <div className="flex items-center justify-between text-slate-400">
-                <span>{kinematics.motionIntensity > 0.035 ? 'MOVEMENT / POSTURE CHANGE' : 'NO CLEAR CHANGE'}</span>
-                <span className="text-sky-400">~{adaptiveFps} FPS</span>
+                <span>{telemetry.motionIntensity > 0.03 ? 'MOVEMENT / POSTURE CHANGE' : 'NO CLEAR CHANGE'}</span>
+                <span className="text-sky-400">~{telemetry.adaptiveFps} FPS</span>
               </div>
               <div className="flex items-center justify-between text-slate-500">
-                <span>TORSO: {kinematics.torsoAngle.toFixed(0)}&deg;</span>
-                <span>HEIGHT: {kinematics.relativeHeight.toFixed(2)}</span>
-                <span>STILL: {kinematics.motionlessDuration.toFixed(1)}S</span>
+                <span>TORSO: {telemetry.torsoAngle.toFixed(0)}&deg;</span>
+                <span>HEIGHT: {telemetry.relativeHeight.toFixed(2)}</span>
+                <span>STILL: {telemetry.motionlessDuration.toFixed(1)}S</span>
               </div>
             </div>
           </div>
