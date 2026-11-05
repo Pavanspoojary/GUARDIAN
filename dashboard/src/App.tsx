@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Header } from './components/Header';
+import { Header, DashboardTab } from './components/Header';
 import { LiveMonitor } from './components/LiveMonitor';
 import { ActiveIncidents } from './components/ActiveIncidents';
 import { PolicyManager } from './components/PolicyManager';
@@ -7,6 +7,7 @@ import { AuditTimeline } from './components/AuditTimeline';
 import { Incident, SafetyRule, Zone, AuditLog } from './types';
 
 export const App: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<DashboardTab>('surveillance');
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [rules, setRules] = useState<SafetyRule[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
@@ -62,7 +63,6 @@ export const App: React.FC = () => {
           const data = JSON.parse(event.data);
           if (data.camera_status) setCameraStatus(data.camera_status);
           if (data.active_incidents) {
-            // Update active incidents list without overwriting full incident records
             fetchData();
           }
         } catch (e) {
@@ -87,74 +87,6 @@ export const App: React.FC = () => {
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
     };
   }, [fetchData]);
-
-  // Trigger Scenario
-  const handleTriggerScenario = async (scenario: string) => {
-    let payload: any = {
-      person_id: 'person_01',
-      activity: 'STANDING',
-      torso_angle: 5.0,
-      relative_body_height: 0.95,
-      vertical_velocity: 0.0,
-      vertical_acceleration: 0.0,
-      movement_velocity: 0.0,
-      motion_intensity: 0.03,
-      floor_proximity: 0.9,
-      zone_name: null,
-      confidence: 0.96,
-    };
-
-    if (scenario === 'bed') {
-      payload = {
-        ...payload,
-        activity: 'LYING',
-        torso_angle: 85.0,
-        relative_body_height: 0.25,
-        vertical_velocity: 0.05,
-        floor_proximity: 0.4,
-        zone_name: 'BED',
-      };
-    } else if (scenario === 'fall') {
-      payload = {
-        ...payload,
-        activity: 'LYING_ON_FLOOR',
-        torso_angle: 88.0,
-        relative_body_height: 0.15,
-        vertical_velocity: 1.45,
-        floor_proximity: 0.02,
-        zone_name: 'FLOOR',
-        motion_intensity: 0.01,
-      };
-    } else if (scenario === 'failed_stand') {
-      payload = {
-        ...payload,
-        activity: 'SITTING',
-        torso_angle: 25.0,
-        relative_body_height: 0.55,
-        movement_velocity: 0.05,
-      };
-    } else if (scenario === 'wandering') {
-      payload = {
-        ...payload,
-        activity: 'WALKING',
-        torso_angle: 10.0,
-        relative_body_height: 0.92,
-        movement_velocity: 0.35,
-        zone_name: 'RESTRICTED',
-      };
-    }
-
-    try {
-      await fetch('/api/simulate-observation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      await fetchData();
-    } catch (err) {
-      console.error('Failed to trigger simulation scenario:', err);
-    }
-  };
 
   // Acknowledge incident
   const handleAcknowledge = async (incidentId: string, operator: string, notes: string) => {
@@ -203,44 +135,77 @@ export const App: React.FC = () => {
   const activeIncidents = incidents.filter((i) => i.status !== 'RESOLVED');
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div className="min-h-screen bg-[#070a12] text-slate-100 flex flex-col font-sans">
       <Header
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
         wsConnected={wsConnected}
         cameraStatus={cameraStatus}
         activeIncidentsCount={activeIncidents.length}
         onRefresh={fetchData}
       />
 
-      <main className="flex-1 p-6 space-y-6 max-w-7xl mx-auto w-full">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Main Visualizer & Live Monitor */}
-          <div className="lg:col-span-7">
-            <LiveMonitor
-              zones={zones}
-              onIncidentTriggered={fetchData}
-              onTriggerScenario={handleTriggerScenario}
-            />
-          </div>
+      <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
+        {/* Tab 1: Live Surveillance HUD */}
+        {activeTab === 'surveillance' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Live Camera & HUD Panel */}
+            <div className="lg:col-span-7">
+              <LiveMonitor onIncidentTriggered={fetchData} />
+            </div>
 
-          {/* Active Incidents & Explainable Evidence */}
-          <div className="lg:col-span-5">
+            {/* Live Incident & Alerts Queue */}
+            <div className="lg:col-span-5 space-y-6">
+              <ActiveIncidents
+                incidents={incidents}
+                onAcknowledge={handleAcknowledge}
+                onResolve={handleResolve}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Tab 2: Incidents Management Console */}
+        {activeTab === 'incidents' && (
+          <div className="space-y-6">
             <ActiveIncidents
               incidents={incidents}
               onAcknowledge={handleAcknowledge}
               onResolve={handleResolve}
             />
           </div>
-        </div>
+        )}
 
-        {/* Deterministic Policy Engine Configuration */}
-        <PolicyManager rules={rules} onToggleRule={handleToggleRule} />
+        {/* Tab 3: Chronological Audit Logs */}
+        {activeTab === 'logs' && (
+          <div className="space-y-6">
+            <AuditTimeline logs={auditLogs} />
+          </div>
+        )}
 
-        {/* Audit Trail */}
-        <AuditTimeline logs={auditLogs} />
+        {/* Tab 4: Safety Settings & Policy Configuration */}
+        {activeTab === 'settings' && (
+          <div className="space-y-6">
+            <PolicyManager
+              rules={rules}
+              zones={zones}
+              onToggleRule={handleToggleRule}
+            />
+          </div>
+        )}
       </main>
 
-      <footer className="border-t border-slate-900 bg-slate-950 py-4 px-6 text-center text-xs text-slate-500 font-mono">
-        GUARDIAN &copy; 2026 &mdash; Deterministic Human Behaviour & Safety Decision Engine. Offline-First &bull; Zero LLMs &bull; Explainable Safety Verification.
+      <footer className="border-t border-slate-900 bg-[#06080e] py-4 px-6 text-center text-xs text-slate-500 font-mono flex flex-col sm:flex-row sm:items-center sm:justify-between max-w-7xl mx-auto w-full gap-2">
+        <div>
+          GUARDIAN &copy; 2026 &mdash; Deterministic Human Behaviour & Safety Decision Engine
+        </div>
+        <div className="flex items-center space-x-3 text-[11px] text-slate-400">
+          <span>OFFLINE LOCAL-FIRST</span>
+          <span>&bull;</span>
+          <span>ZERO LLMS</span>
+          <span>&bull;</span>
+          <span>STRICT EXPLAINABILITY</span>
+        </div>
       </footer>
     </div>
   );
