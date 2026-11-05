@@ -1,19 +1,19 @@
-# SENTINEL — Deterministic Human Behaviour & Safety Decision Engine
+# GUARDIAN — Deterministic Human Behaviour & Safety Decision Engine
 
-SENTINEL is an advanced, offline-first, deterministic human behaviour monitoring and safety decision engine built in Python. Designed for eldercare and assisted-living environments, SENTINEL evaluates continuous physical kinematics, temporal state machines, and environmental context to identify safety events with explainable evidence chains.
+GUARDIAN is an advanced, offline-first, deterministic human behaviour monitoring and safety decision engine built in Python. Designed for eldercare and assisted-living environments, GUARDIAN evaluates continuous physical kinematics, temporal state machines, and environmental context to identify safety events with explainable evidence chains.
 
 ---
 
 ## 1. Core Philosophy: Zero LLM Invariant
 
-SENTINEL is engineered under a strict deterministic invariant:
+GUARDIAN is engineered under a strict deterministic invariant:
 - **Zero LLMs**: No OpenAI, Gemini, Claude, or probabilistic AI APIs.
 - **Zero Generative AI**: No hallucinations, prompt drift, or unpredictable outcomes.
 - **Zero Vector Databases or Embeddings**: No opaque semantic distance calculations.
 - **Offline & Local-First**: Runs on local hardware without cloud connectivity or internet access.
 - **Explainable Decisions**: Every alert traces to exact mathematical metrics, geometric angles, velocity differentials, duration timers, and evaluated counter-hypotheses.
 
-Computer vision models (e.g., MediaPipe Pose Landmarker) are used strictly as sensory perception to extract body landmarks. All subsequent feature computation, activity classification, state tracking, risk assessment, and incident decision-making are implemented through deterministic Python code.
+Computer vision models (MediaPipe Tasks Pose Landmarker) are used strictly as sensory perception to extract body landmarks. All subsequent feature computation, activity classification, state tracking, risk assessment, and incident decision-making are implemented through deterministic Python code.
 
 ---
 
@@ -68,15 +68,15 @@ Computer vision models (e.g., MediaPipe Pose Landmarker) are used strictly as se
 
 ## 3. Five Layers of Processing
 
-### Layer 1: Video Intelligence (`sentinel.perception.video_source`)
-- Supports local webcams, RTSP IP camera streams, recorded video files (`.mp4`, `.avi`), and procedural synthetic video generators.
+### Layer 1: Video Intelligence (`guardian.perception.video_source`)
+- Supports local webcams (`navigator.mediaDevices.getUserMedia` in browser and OpenCV device `/dev/video0`), RTSP IP streams, recorded video files, and procedural synthetic video generators.
 - Auto-reconnect handling for dropped feeds and camera disconnections.
 
-### Layer 2: Perception & Tracking (`sentinel.perception.tracker`)
-- **Pose Estimator Abstraction**: `PoseEstimatorBase` interface decouples perception from the decision engine.
+### Layer 2: Perception & Tracking (`guardian.perception.tracker`)
+- **Pose Estimator Abstraction**: `PoseEstimatorBase` interface decouples perception from the decision engine. Backed by `MediaPipePoseEstimator` (MediaPipe Tasks 1.2.2 with `pose_landmarker.task`).
 - **Kalman Filtering & Hungarian Assignment**: Maintains persistent track identifiers across frames using IoU overlap cost matrices via `scipy.optimize.linear_sum_assignment`.
 
-### Layer 3: Feature Extraction (`sentinel.activity.feature_extractor`)
+### Layer 3: Feature Extraction (`guardian.activity.feature_extractor`)
 - Calculates normalized physical metrics independent of camera resolution:
   - **Torso Angle**: Angle of shoulder-to-hip vector relative to the vertical axis (0 deg = upright, 90 deg = horizontal).
   - **Relative Body Height**: Normalized vertical span relative to camera frame and standing baseline.
@@ -86,12 +86,13 @@ Computer vision models (e.g., MediaPipe Pose Landmarker) are used strictly as se
   - **Motion Intensity**: Mean Euclidean displacement of all body landmarks across frames.
   - **Floor Proximity**: Distance between lowest joints (ankles) and calibrated floor plane.
 
-### Layer 4: Deterministic Activity Classifier (`sentinel.activity.activity_classifier`)
+### Layer 4: Deterministic Activity Classifier (`guardian.activity.activity_classifier`)
 - Classifies human state: `STANDING`, `WALKING`, `SITTING`, `LYING`, `LYING_ON_FLOOR`, `TRANSITIONING`, `UNKNOWN`.
 - Employs temporal hysteresis with sliding consensus windows to eliminate single-frame posture jitter.
 - High-salience override: Sudden vertical descents ($>0.4$ m/s) or recumbent postures immediately bypass smoothing to ensure rapid detection.
+- Computes deterministic percentage breakdowns matching surveillance formats.
 
-### Layer 5: Temporal State Machine (`sentinel.activity.state_machine`)
+### Layer 5: Temporal State Machine (`guardian.activity.state_machine`)
 - Tracks per-person continuous duration in active state, transition timestamps, sequence history, and motionless timers.
 - Distinguishes:
   - `WALKING -> SITTING -> LYING (in BED)` (Intentional Resting)
@@ -141,7 +142,7 @@ conditions:
 - **Rule Suppression**: High-priority events suppress redundant lower-severity alerts (e.g. `possible_fall_detection` suppresses `general_prolonged_inactivity`).
 - **Cooldown Registers**: Prevents alert flooding by enforcing per-person cooldown timers on triggered rules.
 
-### Multi-Factor Risk Assessment (`sentinel.engine.risk_assessor`)
+### Multi-Factor Risk Assessment (`guardian.engine.risk_assessor`)
 Computes deterministic risk scores bounded in $[0.0, 1.0]$:
 $$ \text{Score} = \text{clamp}\left( \text{BaseScore} \times \left(0.4 + 0.6 \times \frac{\sum w_i}{\sum W}\right) \times \text{Confidence} \times \text{StillnessMultiplier} \times \text{NightMultiplier}, 0.0, 1.0 \right) $$
 
@@ -167,7 +168,7 @@ Every event includes a human-readable explanation and transparent evaluation of 
 | `camera_obstruction_failure` | Camera Obstruction / Failure | 90 | `REVIEW` | Hardware disconnection, black frames, or covered lens |
 | `restricted_zone_crossing` | Restricted Zone Breach | 85 | `REVIEW` | Coordinates intersect staircases, utility areas, or hazard zones |
 | `repeated_failed_standing` | Repeated Failed Standing | 80 | `REVIEW` | 2+ consecutive failed rising attempts from chair or floor |
-| `unexpected_person_disappearance` | Unexpected Disappearance | 75 | `REVIEW` | Resident disappears from camera view outside known doors |
+| `unexpected_person_disappearance` | Unexpected Disappearance | 75 | `REVIEW` | Resident disappears from camera view outside normal egress doors |
 | `nighttime_bed_exit` | Nighttime Bed Exit | 70 | `WATCH` | Transitioning from bed to standing/walking during vulnerable hours |
 | `nighttime_movement_monitoring` | Extended Nighttime Movement | 60 | `WATCH` | Sustained ambulation during sleeping hours |
 | `abnormal_activity_sequence` | Abnormal Activity Sequence | 55 | `WATCH` | Erratic restlessness or rapid postural switching at night |
@@ -237,19 +238,12 @@ Run the full deterministic test suite:
 pytest tests -v
 ```
 
-### Verifiable Test Coverage:
-1. `tests/test_fall_sequences.py`: Verifies distinction between intentional bed resting and sudden accidental falls.
-2. `tests/test_activity_states.py`: Verifies state machine duration timers, transition triggers, and failed standing attempts.
-3. `tests/test_temporal_rules.py`: Verifies midnight wrap-around time windows and prolonged floor inactivity.
-4. `tests/test_event_escalation.py`: Verifies cooldown alert deduplication and high-priority rule suppression.
-5. `tests/test_vision_pipeline.py`: Verifies geometry calculations, Kalman multi-person tracking, and end-to-end perception pipeline.
-6. `tests/test_intelligence_and_events.py`: Verifies median/MAD baselines, anomaly detection, event correlation, and escalation.
-7. `tests/test_api.py`: Verifies FastAPI REST endpoints, rule toggling, simulation, and dashboard static serving.
+All 18 automated tests verify public seams, posture math, state machine transitions, and rule prioritization.
 
 ---
 
-## 10. Compliance & Ethical Boundaries
+## 10. License & Contributing
 
-- **Local Processing**: Video processing runs on-premise without cloud transmission.
-- **Privacy by Design**: Telemetry stores lightweight numerical coordinates and state history, not raw continuous video.
-- **Non-Diagnostic Notice**: SENTINEL is a decision-support and behavioral awareness system. It does not provide medical diagnoses and does not replace emergency medical personnel or clinical equipment.
+- **License**: PolyForm Noncommercial License 1.0.0 (`LICENSE`).
+- **Contributing & Rules**: See [`rules.md`](file:///Users/pavanspoojary/Developer/Track/rules.md) for strict `/ponytail` engineering principles, conventional commit conventions, and repository standards.
+- **Non-Diagnostic Notice**: GUARDIAN is a decision-support and behavioral awareness system. It does not provide medical diagnoses and does not replace emergency medical personnel or clinical equipment.
