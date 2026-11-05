@@ -97,11 +97,13 @@ class MultiPersonTracker:
 
     def __init__(
         self,
-        max_missed_frames: int = 30,
-        iou_threshold: float = 0.25,
+        max_missed_frames: int = 4,
+        iou_threshold: float = 0.15,
+        dist_threshold: float = 0.45,
     ) -> None:
         self.max_missed_frames = max_missed_frames
         self.iou_threshold = iou_threshold
+        self.dist_threshold = dist_threshold
         self.trackers: Dict[str, KalmanBoxTracker] = {}
         self._next_id = 1
 
@@ -120,18 +122,31 @@ class MultiPersonTracker:
         matched_dets: List[int] = []
 
         if num_tracks > 0 and num_dets > 0:
-            # Build cost matrix: 1.0 - IoU
+            # Build cost matrix combining IoU overlap and centroid proximity
             cost_matrix = np.zeros((num_tracks, num_dets), dtype=np.float32)
             for t_idx, t_box in enumerate(active_boxes):
+                tc_x = (t_box[1] + t_box[3]) / 2.0
+                tc_y = (t_box[0] + t_box[2]) / 2.0
                 for d_idx, det in enumerate(detections):
+                    dc_x = (det.bbox[1] + det.bbox[3]) / 2.0
+                    dc_y = (det.bbox[0] + det.bbox[2]) / 2.0
+                    dist = float(np.hypot(tc_x - dc_x, tc_y - dc_y))
                     iou = compute_iou(t_box, det.bbox)
-                    cost_matrix[t_idx, d_idx] = 1.0 - iou
+
+                    # For single person stream, prioritize proximity matching even during rapid posture transitions
+                    if num_tracks == 1 and num_dets == 1 and dist < self.dist_threshold:
+                        cost_matrix[t_idx, d_idx] = dist * 0.4
+                    elif iou >= self.iou_threshold:
+                        cost_matrix[t_idx, d_idx] = 1.0 - iou
+                    elif dist < self.dist_threshold:
+                        cost_matrix[t_idx, d_idx] = 0.7 + dist * 0.3
+                    else:
+                        cost_matrix[t_idx, d_idx] = 10.0
 
             row_ind, col_ind = linear_sum_assignment(cost_matrix)
 
             for r, c in zip(row_ind, col_ind):
-                # Only accept match if IoU >= threshold
-                if (1.0 - cost_matrix[r, c]) >= self.iou_threshold:
+                if cost_matrix[r, c] < 2.0:
                     matched_tracks.append(r)
                     matched_dets.append(c)
                     t_id = active_track_ids[r]
@@ -154,10 +169,10 @@ class MultiPersonTracker:
         for tid in dead_ids:
             del self.trackers[tid]
 
-        # 4. Formulate output
+        # 4. Formulate output: prioritize freshly updated tracks
         results: List[TrackedPerson] = []
         for tid, trk in self.trackers.items():
-            if trk.last_pose is not None:
+            if trk.last_pose is not None and trk.time_since_update <= 1:
                 results.append(TrackedPerson(
                     track_id=tid,
                     bbox=trk.get_bbox(),
@@ -166,4 +181,5 @@ class MultiPersonTracker:
                     time_since_last_seen=trk.time_since_update,
                 ))
 
+        results.sort(key=lambda t: (t.time_since_last_seen, -t.pose.confidence))
         return results

@@ -72,8 +72,8 @@ class MediaPipePoseEstimator(PoseEstimatorBase):
     def __init__(
         self,
         model_path: str = "pose_landmarker.task",
-        min_detection_confidence: float = 0.5,
-        min_tracking_confidence: float = 0.5,
+        min_detection_confidence: float = 0.35,
+        min_tracking_confidence: float = 0.35,
     ) -> None:
         import os
         import mediapipe as mp

@@ -38,6 +38,7 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isHudVisible, setIsHudVisible] = useState<boolean>(true);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  const [videoAspect, setVideoAspect] = useState<number>(4 / 3);
 
   // Single batched telemetry state to eliminate multiple React re-renders per frame
   const [telemetry, setTelemetry] = useState<TelemetryState>({
@@ -82,9 +83,12 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
         videoRef.current.srcObject = stream;
         videoRef.current.muted = true;
         videoRef.current.onloadedmetadata = () => {
-          if (canvasRef.current && videoRef.current) {
-            canvasRef.current.width = videoRef.current.videoWidth || 640;
-            canvasRef.current.height = videoRef.current.videoHeight || 480;
+          const vw = videoRef.current?.videoWidth || 640;
+          const vh = videoRef.current?.videoHeight || 480;
+          setVideoAspect(vw / vh);
+          if (canvasRef.current) {
+            canvasRef.current.width = vw;
+            canvasRef.current.height = vh;
           }
           videoRef.current?.play().then(() => {
             setCameraReady(true);
@@ -155,11 +159,11 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
     let isProcessing = false;
     let lastMotionTimestamp = Date.now();
 
-    // Create compact 256x256 offscreen canvas (matches MediaPipe's exact native tensor input)
+    // Compact aspect-ratio preserved offscreen capture canvas (zero distortion)
     if (!offscreenCanvasRef.current) {
       const oc = document.createElement('canvas');
-      oc.width = 256;
-      oc.height = 256;
+      oc.width = 320;
+      oc.height = 240;
       offscreenCanvasRef.current = oc;
     }
 
@@ -180,10 +184,20 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
       isProcessing = true;
       const t0 = performance.now();
 
-      // Adaptive efficiency: 4 FPS (250ms) when resting/sitting, 6 FPS (160ms) when moving
-      const isStill = (Date.now() - lastMotionTimestamp) > 2500;
-      const nextInterval = isStill ? 250 : 160;
-      const currentFps = isStill ? 4 : 6;
+      // Ensure offscreen canvas dynamically preserves the exact webcam aspect ratio
+      const vw = video.videoWidth || 640;
+      const vh = video.videoHeight || 480;
+      const targetW = 320;
+      const targetH = Math.round(targetW * (vh / vw)) || 240;
+      if (offscreen.width !== targetW || offscreen.height !== targetH) {
+        offscreen.width = targetW;
+        offscreen.height = targetH;
+      }
+
+      // Adaptive efficiency: 3 FPS (330ms) when resting/sitting, 5 FPS (200ms) when moving
+      const isStill = (Date.now() - lastMotionTimestamp) > 2000;
+      const nextInterval = isStill ? 330 : 200;
+      const currentFps = isStill ? 3 : 5;
 
       try {
         const offCtx = offscreen.getContext('2d', { willReadFrequently: false });
@@ -240,7 +254,7 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
               isProcessing = false;
               timeoutId = setTimeout(captureAndProcess, nextInterval);
             }
-          }, 'image/jpeg', 0.45);
+          }, 'image/jpeg', 0.60);
         } else {
           isProcessing = false;
           timeoutId = setTimeout(captureAndProcess, nextInterval);
@@ -386,21 +400,26 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
         isFullscreen ? 'fixed inset-0 z-50 h-screen' : 'h-[calc(100vh-76px)] rounded-2xl border border-slate-800 shadow-2xl'
       }`}
     >
-      {/* 1. Full Screen Video Layer (Native GPU-accelerated) */}
-      <div className="relative w-full h-full flex items-center justify-center bg-black overflow-hidden">
-        <video
-          ref={videoRef}
-          playsInline
-          autoPlay
-          muted
-          className="w-full h-full object-cover"
-        />
+      {/* 1. Full Surface Video & Skeleton Layer (100% Geometry Matched) */}
+      <div className="relative w-full h-full flex items-center justify-center bg-black overflow-hidden p-2">
+        <div
+          className="relative max-w-full max-h-full flex items-center justify-center shadow-2xl"
+          style={{ aspectRatio: `${videoAspect}` }}
+        >
+          <video
+            ref={videoRef}
+            playsInline
+            autoPlay
+            muted
+            className="w-full h-full object-cover rounded-xl"
+          />
 
-        {/* 2. Transparent Tactical Canvas Overlay directly on top */}
-        <canvas
-          ref={canvasRef}
-          className="absolute inset-0 w-full h-full object-cover pointer-events-none z-10"
-        />
+          {/* 2. Transparent Tactical Canvas Overlay directly matching video surface 1:1 */}
+          <canvas
+            ref={canvasRef}
+            className="absolute inset-0 w-full h-full pointer-events-none z-10 rounded-xl"
+          />
+        </div>
 
         {/* Camera Permission Alert if Blocked */}
         {cameraError && (
