@@ -48,7 +48,7 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
   const startWebcam = useCallback(async () => {
     setCameraError(null);
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setCameraError('Webcam access not supported in this browser environment.');
+      setCameraError('Webcam access not supported in this browser environment. Ensure HTTPS or localhost.');
       return;
     }
 
@@ -59,12 +59,15 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        videoRef.current.muted = true;
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch((e) => console.warn('Webcam autoplay prevented:', e));
+        };
         setIsPlaying(true);
       }
     } catch (err: any) {
       console.warn('Webcam permission error:', err);
-      setCameraError('Camera permission requested. Click allow, or use Sample Footage mode below.');
+      setCameraError('Camera access requested. Please allow webcam permission in your browser prompt.');
     }
   }, []);
 
@@ -396,24 +399,24 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
 
         {/* 4. Activity & Posture Distribution Breakdown Table */}
         <div className="space-y-1.5 pt-1">
-          {distribution.map((item, idx) => (
+          {distribution.slice(1).map((item, idx) => (
             <div
               key={idx}
-              className="flex items-center justify-between py-1 px-2 rounded bg-slate-950/80 hover:bg-slate-900 border border-slate-900/60 font-mono text-xs text-slate-400"
+              className="flex items-center justify-between py-1.5 px-3 rounded bg-[#121212] hover:bg-[#1a1a1a] border border-[#222222] font-mono text-xs text-slate-300"
             >
-              <span className="text-slate-300 font-semibold">{item.percent.toFixed(1)}%</span>
-              <span className="uppercase tracking-wide text-slate-300">{item.label}</span>
+              <span className="font-semibold">{item.percent.toFixed(1)}%</span>
+              <span className="uppercase tracking-wide">{item.label}</span>
             </div>
           ))}
         </div>
 
-        {/* 5. Bottom Kinematic Status Line */}
-        <div className="border-t border-slate-900 pt-3 flex items-center justify-between text-[11px] font-mono text-slate-500">
+        {/* 5. Bottom Status Line Exactly As Seen in Video */}
+        <div className="border-t border-slate-900 pt-3 flex items-center justify-between text-[11px] font-mono text-slate-500 uppercase tracking-wider">
           <div>
-            TORSO: <span className="text-slate-300">{kinematics.torsoAngle.toFixed(0)} DEG</span> | HEIGHT: <span className="text-slate-300">{kinematics.relativeHeight.toFixed(2)}</span>
+            {kinematics.motionIntensity > 0.04 ? 'MOVEMENT / POSTURE CHANGE' : 'NO CLEAR CHANGE'} / {latencyMs} MS
           </div>
           <div>
-            STILLNESS: <span className="text-slate-300">{kinematics.motionlessDuration.toFixed(1)}S</span> | LATENCY: <span className="text-sky-400">{latencyMs}MS</span>
+            TORSO: {kinematics.torsoAngle.toFixed(0)} DEG | HEIGHT: {kinematics.relativeHeight.toFixed(2)}
           </div>
         </div>
 

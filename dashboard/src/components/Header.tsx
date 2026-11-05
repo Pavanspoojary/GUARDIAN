@@ -22,7 +22,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
         <div>
           <div className="flex items-center space-x-2">
-            <h1 className="text-lg font-bold text-slate-100 tracking-wider">SENTINEL</h1>
+            <h1 className="text-lg font-bold text-slate-100 tracking-wider">GUARDIAN</h1>
             <span className="text-xs px-2 py-0.5 rounded font-mono font-medium bg-slate-800 text-slate-400 border border-slate-700">
               v1.0 DETERMINISTIC
             </span>

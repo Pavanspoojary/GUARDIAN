@@ -34,7 +34,7 @@ export const App: React.FC = () => {
         setCameraStatus(h.camera_status);
       }
     } catch (err) {
-      console.error('Error fetching data from SENTINEL API:', err);
+      console.error('Error fetching data from GUARDIAN API:', err);
     }
   }, []);
 
@@ -240,7 +240,7 @@ export const App: React.FC = () => {
       </main>
 
       <footer className="border-t border-slate-900 bg-slate-950 py-4 px-6 text-center text-xs text-slate-500 font-mono">
-        SENTINEL &copy; 2026 &mdash; Deterministic Human Behaviour & Safety Decision Engine. Offline-First &bull; Zero LLMs &bull; Explainable Safety Verification.
+        GUARDIAN &copy; 2026 &mdash; Deterministic Human Behaviour & Safety Decision Engine. Offline-First &bull; Zero LLMs &bull; Explainable Safety Verification.
       </footer>
     </div>
   );
