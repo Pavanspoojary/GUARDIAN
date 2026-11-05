@@ -245,5 +245,5 @@ All 18 automated tests verify public seams, posture math, state machine transiti
 ## 10. License & Contributing
 
 - **License**: PolyForm Noncommercial License 1.0.0 (`LICENSE`).
-- **Contributing & Rules**: See [`rules.md`](file:///Users/pavanspoojary/Developer/Track/rules.md) for strict `/ponytail` engineering principles, conventional commit conventions, and repository standards.
+- **Contributing**: Follow conventional commit specifications and Ponytail software engineering principles (minimal effective code, standard library first).
 - **Non-Diagnostic Notice**: GUARDIAN is a decision-support and behavioral awareness system. It does not provide medical diagnoses and does not replace emergency medical personnel or clinical equipment.

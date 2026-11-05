@@ -8,3 +8,4 @@ __pycache__/
 dashboard/node_modules/
 *.task
 .DS_Store
+rules.md
