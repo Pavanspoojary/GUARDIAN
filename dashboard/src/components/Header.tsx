@@ -30,9 +30,6 @@ export const Header: React.FC<HeaderProps> = ({
         <div>
           <div className="flex items-center space-x-2">
             <h1 className="text-base font-bold text-slate-100 tracking-wider">GUARDIAN</h1>
-            <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-medium bg-slate-800 text-slate-400 border border-slate-700">
-              v1.0 DETERMINISTIC
-            </span>
           </div>
           <p className="text-[11px] text-slate-400">Human Behaviour & Safety Decision Engine</p>
         </div>

@@ -480,8 +480,8 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
               <span className="line-clamp-3">{telemetry.narrative}</span>
             </div>
 
-            {/* 3-Row Telemetry Metrics (TIME, FRAMES, COST) */}
-            <div className="grid grid-cols-3 gap-2 py-3 border-b border-slate-900 text-xs font-mono shrink-0">
+            {/* 2-Column Telemetry Metrics (TIME, FRAMES) */}
+            <div className="grid grid-cols-2 gap-3 py-3 border-b border-slate-900 text-xs font-mono shrink-0">
               <div>
                 <div className="text-[9px] text-slate-500 uppercase tracking-wider">TIME</div>
                 <div className="text-sm font-bold text-slate-100">{String(elapsedSeconds).padStart(3, '0')} S</div>
@@ -489,10 +489,6 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
               <div>
                 <div className="text-[9px] text-slate-500 uppercase tracking-wider">FRAMES</div>
                 <div className="text-sm font-bold text-slate-100">{String(telemetry.framesCount).padStart(4, '0')}</div>
-              </div>
-              <div>
-                <div className="text-[9px] text-slate-500 uppercase tracking-wider">CLOUD COST</div>
-                <div className="text-sm font-bold text-emerald-400">$0.00 (LOC)</div>
               </div>
             </div>
 

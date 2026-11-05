@@ -172,12 +172,7 @@ export const App: React.FC = () => {
         {activeTab === 'surveillance' && (
           <div className="flex-1 flex flex-col space-y-2">
             {/* Top Toolbar for Surveillance Mode */}
-            <div className="flex items-center justify-between px-2 text-xs font-mono">
-              <div className="flex items-center space-x-2 text-slate-400">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span className="font-bold text-slate-200">HIGH-PERFORMANCE HARDWARE-ACCELERATED WEBCAM PIPELINE</span>
-              </div>
-
+            <div className="flex items-center justify-end px-2 text-xs font-mono">
               <div className="flex items-center space-x-1 bg-slate-900 border border-slate-800 p-1 rounded-lg">
                 <button
                   onClick={() => setSurveillanceMode('fullscreen')}
@@ -274,7 +269,7 @@ export const App: React.FC = () => {
           GUARDIAN &copy; 2026 &mdash; Deterministic Human Behaviour & Safety Decision Engine
         </div>
         <div className="flex items-center space-x-3 text-[11px] text-slate-400">
-          <span>HARDWARE-ACCELERATED</span>
+          <span>OFFLINE LOCAL-FIRST</span>
           <span>&bull;</span>
           <span>ADAPTIVE INFERENCE</span>
           <span>&bull;</span>
