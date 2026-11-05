@@ -4,14 +4,13 @@ import { LiveMonitor } from './components/LiveMonitor';
 import { ActiveIncidents } from './components/ActiveIncidents';
 import { PolicyManager } from './components/PolicyManager';
 import { AuditTimeline } from './components/AuditTimeline';
-import { Incident, SafetyRule, Zone, AuditLog, TrackedPersonData } from './types';
+import { Incident, SafetyRule, Zone, AuditLog } from './types';
 
 export const App: React.FC = () => {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [rules, setRules] = useState<SafetyRule[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [activePeople, setActivePeople] = useState<TrackedPersonData[]>([]);
   const [cameraStatus, setCameraStatus] = useState<string>('ONLINE');
   const [wsConnected, setWsConnected] = useState<boolean>(false);
 
@@ -61,7 +60,6 @@ export const App: React.FC = () => {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.active_people) setActivePeople(data.active_people);
           if (data.camera_status) setCameraStatus(data.camera_status);
           if (data.active_incidents) {
             // Update active incidents list without overwriting full incident records
@@ -219,7 +217,7 @@ export const App: React.FC = () => {
           <div className="lg:col-span-7">
             <LiveMonitor
               zones={zones}
-              activePeople={activePeople}
+              onIncidentTriggered={fetchData}
               onTriggerScenario={handleTriggerScenario}
             />
           </div>

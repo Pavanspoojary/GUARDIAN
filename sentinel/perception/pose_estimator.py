@@ -67,57 +67,79 @@ class PoseEstimatorBase(ABC):
 
 
 class MediaPipePoseEstimator(PoseEstimatorBase):
-    """Concrete pose estimator backed by Google MediaPipe."""
+    """Concrete pose estimator backed by Google MediaPipe Tasks API."""
 
     def __init__(
         self,
+        model_path: str = "pose_landmarker.task",
         min_detection_confidence: float = 0.5,
         min_tracking_confidence: float = 0.5,
-        model_complexity: int = 1,
     ) -> None:
+        import os
         import mediapipe as mp
-        self.mp_pose = mp.solutions.pose
-        self.pose = self.mp_pose.Pose(
-            min_detection_confidence=min_detection_confidence,
+        from mediapipe.tasks import python
+        from mediapipe.tasks.python import vision
+
+        # Check local paths for model
+        resolved_path = model_path
+        if not os.path.exists(resolved_path):
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            candidate = os.path.join(base_dir, "pose_landmarker.task")
+            if os.path.exists(candidate):
+                resolved_path = candidate
+
+        base_options = python.BaseOptions(model_asset_path=resolved_path)
+        options = vision.PoseLandmarkerOptions(
+            base_options=base_options,
+            min_pose_detection_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence,
-            model_complexity=model_complexity,
+            output_segmentation_masks=False,
         )
+        self.detector = vision.PoseLandmarker.create_from_options(options)
 
     def estimate(self, frame: np.ndarray) -> List[PoseDetectionResult]:
-        """Extract landmarks from OpenCV frame."""
+        """Extract landmarks from OpenCV frame (BGR numpy array)."""
         import cv2
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = self.pose.process(rgb)
+        import mediapipe as mp
 
-        if not results.pose_landmarks:
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        results = self.detector.detect(mp_image)
+
+        if not results or not results.pose_landmarks:
             return []
 
-        landmarks_dict: Dict[str, Tuple[float, float, float]] = {}
-        pts_2d: List[Tuple[float, float]] = []
-        visibilities: List[float] = []
+        detections: List[PoseDetectionResult] = []
+        for person_lms in results.pose_landmarks:
+            landmarks_dict: Dict[str, Tuple[float, float, float]] = {}
+            pts_2d: List[Tuple[float, float]] = []
+            visibilities: List[float] = []
 
-        for idx, name in MP_INDICES.items():
-            lm = results.pose_landmarks.landmark[idx]
-            x = max(0.0, min(1.0, float(lm.x)))
-            y = max(0.0, min(1.0, float(lm.y)))
-            vis = max(0.0, min(1.0, float(lm.visibility)))
-            landmarks_dict[name] = (x, y, vis)
-            pts_2d.append((x, y))
-            visibilities.append(vis)
+            for idx, name in MP_INDICES.items():
+                if idx < len(person_lms):
+                    lm = person_lms[idx]
+                    x = max(0.0, min(1.0, float(lm.x)))
+                    y = max(0.0, min(1.0, float(lm.y)))
+                    vis = max(0.0, min(1.0, float(getattr(lm, "visibility", 1.0))))
+                    landmarks_dict[name] = (x, y, vis)
+                    pts_2d.append((x, y))
+                    visibilities.append(vis)
 
-        bbox = compute_bounding_box(pts_2d)
-        mean_confidence = float(np.mean(visibilities)) if visibilities else 1.0
+            bbox = compute_bounding_box(pts_2d)
+            mean_confidence = float(np.mean(visibilities)) if visibilities else 1.0
 
-        return [PoseDetectionResult(
-            landmarks=landmarks_dict,
-            bbox=bbox,
-            confidence=mean_confidence,
-        )]
+            detections.append(PoseDetectionResult(
+                landmarks=landmarks_dict,
+                bbox=bbox,
+                confidence=mean_confidence,
+            ))
+
+        return detections
 
     def close(self) -> None:
         """Close model instance."""
-        if hasattr(self, "pose") and self.pose is not None:
-            self.pose.close()
+        if hasattr(self, "detector") and self.detector is not None:
+            self.detector.close()
 
 
 class SyntheticPoseEstimator(PoseEstimatorBase):

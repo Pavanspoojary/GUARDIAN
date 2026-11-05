@@ -1,317 +1,453 @@
-import React, { useRef, useEffect, useState } from 'react';
-import { Play, Eye, AlertTriangle, UserCheck, ShieldAlert, Footprints, Moon } from 'lucide-react';
-import { Zone, TrackedPersonData } from '../types';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { Camera, Video, Play, Pause, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { Zone, LiveFrameResult, ActivityDistributionItem } from '../types';
 
 interface LiveMonitorProps {
   zones: Zone[];
-  activePeople: TrackedPersonData[];
+  onIncidentTriggered: () => void;
   onTriggerScenario: (scenario: string) => Promise<void>;
 }
 
 export const LiveMonitor: React.FC<LiveMonitorProps> = ({
-  zones,
-  activePeople,
+  zones: _zones,
+  onIncidentTriggered,
   onTriggerScenario,
 }) => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [animTime, setAnimTime] = useState(0);
-  const [simulating, setSimulating] = useState(false);
-  const [activeScenario, setActiveScenario] = useState<string>('idle');
 
-  // Animation loop for canvas
-  useEffect(() => {
-    let animId: number;
-    const loop = () => {
-      setAnimTime((t) => t + 0.03);
-      animId = requestAnimationFrame(loop);
-    };
-    animId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(animId);
+  // Video Source Mode: 'webcam' | 'sample' | 'simulation'
+  const [sourceMode, setSourceMode] = useState<'webcam' | 'sample' | 'simulation'>('webcam');
+  const [isPlaying, setIsPlaying] = useState<boolean>(true);
+  const [showSkeleton, setShowSkeleton] = useState<boolean>(true);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+
+  // Telemetry HUD states
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  const [framesCount, setFramesCount] = useState<number>(0);
+  const [latencyMs, setLatencyMs] = useState<number>(45);
+  const [narrative, setNarrative] = useState<string>('INITIALIZING DETERMINISTIC SURVEILLANCE PIPELINE...');
+  const [distribution, setDistribution] = useState<ActivityDistributionItem[]>([
+    { label: 'POSSIBLE FALL · REVIEW', percent: 0.0 },
+    { label: 'LYING / RESTING', percent: 0.0 },
+    { label: 'SITTING', percent: 0.0 },
+    { label: 'STANDING', percent: 92.5 },
+    { label: 'WALKING', percent: 5.0 },
+    { label: 'UNCLEAR / OTHER', percent: 2.5 },
+    { label: 'NO PERSON VISIBLE', percent: 0.0 },
+  ]);
+  const [activeState, setActiveState] = useState<string>('STANDING');
+  const [kinematics, setKinematics] = useState({
+    torsoAngle: 5.0,
+    relativeHeight: 0.90,
+    motionIntensity: 0.02,
+    motionlessDuration: 0.0,
+  });
+
+  // Start webcam
+  const startWebcam = useCallback(async () => {
+    setCameraError(null);
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setCameraError('Webcam access not supported in this browser environment.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+        audio: false,
+      });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+        setIsPlaying(true);
+      }
+    } catch (err: any) {
+      console.warn('Webcam permission error:', err);
+      setCameraError('Camera permission requested. Click allow, or use Sample Footage mode below.');
+    }
   }, []);
 
-  // Draw scene
+  // Stop webcam
+  const stopWebcam = useCallback(() => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
+  // Switch source mode
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const width = canvas.width;
-    const height = canvas.height;
-
-    // Clear background
-    ctx.fillStyle = '#0b0f19';
-    ctx.fillRect(0, 0, width, height);
-
-    // Grid lines
-    ctx.strokeStyle = '#1e293b';
-    ctx.lineWidth = 1;
-    for (let x = 0; x < width; x += 40) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
-      ctx.stroke();
+    if (sourceMode === 'webcam') {
+      startWebcam();
+    } else {
+      stopWebcam();
+      if (videoRef.current) {
+        if (sourceMode === 'sample') {
+          videoRef.current.src = '/api/sample-video';
+          videoRef.current.loop = true;
+          videoRef.current.muted = true;
+          videoRef.current.play();
+          setIsPlaying(true);
+        } else {
+          videoRef.current.src = '';
+        }
+      }
     }
-    for (let y = 0; y < height; y += 40) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-      ctx.stroke();
-    }
+    return () => {
+      stopWebcam();
+    };
+  }, [sourceMode, startWebcam, stopWebcam]);
 
-    // Floor line (y = 0.85)
-    const floorY = height * 0.85;
-    ctx.strokeStyle = '#f59e0b';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([6, 6]);
-    ctx.beginPath();
-    ctx.moveTo(0, floorY);
-    ctx.lineTo(width, floorY);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = '#f59e0b';
-    ctx.font = '10px JetBrains Mono';
-    ctx.fillText('CALIBRATED FLOOR PLANE (y = 0.85)', 15, floorY - 6);
+  // Elapsed timer
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (isPlaying) {
+        setElapsedSeconds((s) => s + 1);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isPlaying]);
 
-    // Draw Zones
-    zones.forEach((z) => {
-      const [ymin, xmin, ymax, xmax] = z.bounds;
-      const zx = xmin * width;
-      const zy = ymin * height;
-      const zw = (xmax - xmin) * width;
-      const zh = (ymax - ymin) * height;
+  // Frame processing loop
+  useEffect(() => {
+    let timeoutId: any;
+    let isProcessing = false;
 
-      if (z.zone_type === 'BED') {
-        ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
-        ctx.strokeStyle = '#38bdf8';
-      } else if (z.zone_type === 'RESTRICTED') {
-        ctx.fillStyle = 'rgba(239, 68, 68, 0.1)';
-        ctx.strokeStyle = '#ef4444';
-      } else {
-        ctx.fillStyle = 'rgba(16, 185, 129, 0.08)';
-        ctx.strokeStyle = '#10b981';
+    const captureAndProcess = async () => {
+      if (!isPlaying || isProcessing) {
+        timeoutId = setTimeout(captureAndProcess, 150);
+        return;
       }
 
-      ctx.fillRect(zx, zy, zw, zh);
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 4]);
-      ctx.strokeRect(zx, zy, zw, zh);
-      ctx.setLineDash([]);
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      if (!video || !canvas || video.readyState < 2) {
+        timeoutId = setTimeout(captureAndProcess, 150);
+        return;
+      }
 
-      ctx.fillStyle = ctx.strokeStyle;
-      ctx.font = '11px JetBrains Mono';
-      ctx.fillText(`ZONE: ${z.name} [${z.zone_type}]`, zx + 8, zy + 18);
+      isProcessing = true;
+      const t0 = performance.now();
+
+      try {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          // Draw video frame to canvas
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+          // Get Base64 image
+          const base64Data = canvas.toDataURL('image/jpeg', 0.65);
+
+          const res = await fetch('/api/process-live-frame', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image_base64: base64Data,
+              timestamp: Date.now() / 1000,
+            }),
+          });
+
+          if (res.ok) {
+            const data: LiveFrameResult = await res.json();
+            setFramesCount((f) => f + 1);
+            setNarrative(data.narrative);
+            setDistribution(data.distribution);
+            setActiveState(data.active_state);
+            setKinematics({
+              torsoAngle: data.torso_angle,
+              relativeHeight: data.relative_body_height,
+              motionIntensity: data.motion_intensity,
+              motionlessDuration: data.motionless_duration,
+            });
+
+            if (data.incidents && data.incidents.length > 0) {
+              onIncidentTriggered();
+            }
+
+            // Draw skeleton & annotations on canvas over video
+            if (showSkeleton && data.landmarks) {
+              drawSkeleton(ctx, data.landmarks, data.bbox, data.active_state, canvas.width, canvas.height);
+            }
+          }
+        }
+      } catch (e) {
+        // Network or frame error
+      } finally {
+        const dt = Math.round(performance.now() - t0);
+        setLatencyMs(dt);
+        isProcessing = false;
+        timeoutId = setTimeout(captureAndProcess, 150);
+      }
+    };
+
+    timeoutId = setTimeout(captureAndProcess, 200);
+    return () => clearTimeout(timeoutId);
+  }, [isPlaying, showSkeleton, onIncidentTriggered]);
+
+  // Skeleton rendering helper
+  const drawSkeleton = (
+    ctx: CanvasRenderingContext2D,
+    lms: Record<string, [number, number, number]>,
+    bbox: [number, number, number, number],
+    state: string,
+    width: number,
+    height: number
+  ) => {
+    // Determine color
+    let strokeColor = '#10b981'; // Green for normal
+    if (state.includes('FALL') || state === 'LYING_ON_FLOOR') {
+      strokeColor = '#ef4444'; // Red for fall
+    } else if (state === 'SITTING') {
+      strokeColor = '#f59e0b'; // Amber for sitting
+    } else if (state.includes('LYING')) {
+      strokeColor = '#38bdf8'; // Blue for resting
+    }
+
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 3;
+    ctx.fillStyle = '#ffffff';
+
+    // Skeleton bone connections
+    const bones = [
+      ['left_shoulder', 'right_shoulder'],
+      ['left_shoulder', 'left_elbow'],
+      ['left_elbow', 'left_wrist'],
+      ['right_shoulder', 'right_elbow'],
+      ['right_elbow', 'right_wrist'],
+      ['left_shoulder', 'left_hip'],
+      ['right_shoulder', 'right_hip'],
+      ['left_hip', 'right_hip'],
+      ['left_hip', 'left_knee'],
+      ['left_knee', 'left_ankle'],
+      ['right_hip', 'right_knee'],
+      ['right_knee', 'right_ankle'],
+    ];
+
+    bones.forEach(([k1, k2]) => {
+      if (lms[k1] && lms[k2]) {
+        const [x1, y1] = lms[k1];
+        const [x2, y2] = lms[k2];
+        ctx.beginPath();
+        ctx.moveTo(x1 * width, y1 * height);
+        ctx.lineTo(x2 * width, y2 * height);
+        ctx.stroke();
+      }
     });
 
-    // Draw simulated / tracked person
-    let px = width * 0.45;
-    let py = height * 0.45;
-    let torsoDeg = 5;
-    let bodyH = height * 0.45;
-    let label = 'STANDING';
-    let badgeColor = '#10b981';
+    // Draw joints
+    Object.values(lms).forEach(([x, y]) => {
+      ctx.beginPath();
+      ctx.arc(x * width, y * height, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    });
 
-    if (activeScenario === 'fall') {
-      // Recumbent on floor
-      px = width * 0.40;
-      py = floorY - 30;
-      torsoDeg = 88;
-      bodyH = 40;
-      label = 'LYING_ON_FLOOR';
-      badgeColor = '#ef4444';
-    } else if (activeScenario === 'bed') {
-      // Resting on bed
-      px = width * 0.20;
-      py = height * 0.35;
-      torsoDeg = 85;
-      bodyH = 50;
-      label = 'LYING (BED)';
-      badgeColor = '#38bdf8';
-    } else if (activeScenario === 'failed_stand') {
-      // Sitting with fatigue
-      px = width * 0.50;
-      py = height * 0.50;
-      torsoDeg = 25;
-      bodyH = height * 0.28;
-      label = 'SITTING (FAILED ASCENT x2)';
-      badgeColor = '#f97316';
-    } else if (activeScenario === 'wandering') {
-      // Near restricted zone
-      px = width * 0.75 + Math.sin(animTime * 1.5) * 15;
-      py = height * 0.42;
-      torsoDeg = 10;
-      bodyH = height * 0.42;
-      label = 'WALKING (RESTRICTED PERIMETER)';
-      badgeColor = '#eab308';
-    } else {
-      // Normal standing sway
-      px += Math.sin(animTime) * 8;
+    // Draw Bounding Box
+    if (bbox && bbox[2] > bbox[0]) {
+      const [ymin, xmin, ymax, xmax] = bbox;
+      const bx = xmin * width;
+      const by = ymin * height;
+      const bw = (xmax - xmin) * width;
+      const bh = (ymax - ymin) * height;
+
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(bx, by, bw, bh);
+
+      // Label Tag
+      ctx.fillStyle = strokeColor;
+      ctx.fillRect(bx, Math.max(0, by - 22), Math.min(180, bw + 40), 22);
+      ctx.fillStyle = '#000000';
+      ctx.font = 'bold 11px JetBrains Mono';
+      ctx.fillText(`person_01: ${state}`, bx + 6, Math.max(14, by - 7));
     }
-
-    // Skeleton joints
-    ctx.strokeStyle = badgeColor;
-    ctx.lineWidth = 2.5;
-
-    // Head
-    const headRadius = 14;
-    ctx.beginPath();
-    ctx.arc(px, py - bodyH / 2, headRadius, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    ctx.fill();
-    ctx.stroke();
-
-    // Spine & Torso
-    ctx.beginPath();
-    ctx.moveTo(px, py - bodyH / 2 + headRadius);
-    ctx.lineTo(px, py);
-    ctx.stroke();
-
-    // Limbs based on posture
-    if (torsoDeg > 60) {
-      // Lying down
-      ctx.beginPath();
-      ctx.moveTo(px - 30, py + 10);
-      ctx.lineTo(px + 40, py + 10);
-      ctx.stroke();
-    } else {
-      // Upright or sitting
-      // Arms
-      ctx.beginPath();
-      ctx.moveTo(px - 20, py - bodyH / 4);
-      ctx.lineTo(px + 20, py - bodyH / 4);
-      ctx.stroke();
-
-      // Legs
-      ctx.beginPath();
-      ctx.moveTo(px, py);
-      ctx.lineTo(px - 15, py + bodyH / 2);
-      ctx.moveTo(px, py);
-      ctx.lineTo(px + 15, py + bodyH / 2);
-      ctx.stroke();
-    }
-
-    // Bounding box
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(px - 35, py - bodyH / 2 - 20, 70, bodyH + 30);
-
-    // Label tag
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(px - 45, py - bodyH / 2 - 42, 160, 20);
-    ctx.fillStyle = badgeColor;
-    ctx.font = 'bold 10px JetBrains Mono';
-    ctx.fillText(`person_01: ${label}`, px - 40, py - bodyH / 2 - 28);
-  }, [zones, animTime, activeScenario]);
-
-  const handleScenarioClick = async (scenario: string) => {
-    setActiveScenario(scenario);
-    setSimulating(true);
-    await onTriggerScenario(scenario);
-    setSimulating(false);
   };
 
-  return (
-    <div className="panel-card p-5 flex flex-col space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <Eye className="w-5 h-5 text-sky-400" />
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-200">
-            Real-Time Visual Perception & Tracking Canvas
-          </h2>
-        </div>
-        <span className="text-xs font-mono text-slate-400">
-          640x480 NORMALIZED COORD MATRIX
-        </span>
-      </div>
+  // Top active item from distribution
+  const topActive = distribution[0] || { label: 'UNCLEAR', percent: 0 };
+  const isEmergency = topActive.label.includes('FALL') || activeState.includes('FALL');
 
-      <div className="relative rounded-lg overflow-hidden border border-slate-800 bg-slate-950 flex justify-center">
+  return (
+    <div className="bg-black border border-slate-800 rounded-lg overflow-hidden flex flex-col font-mono text-xs shadow-2xl">
+      {/* Top Half: Video Screen & Player */}
+      <div className="relative bg-slate-950 aspect-video w-full flex items-center justify-center overflow-hidden">
+        {/* Real HTML Video element */}
+        <video
+          ref={videoRef}
+          playsInline
+          autoPlay
+          muted
+          className={`w-full h-full object-cover ${sourceMode === 'simulation' ? 'hidden' : 'block'}`}
+        />
+
+        {/* Canvas overlay for drawing skeletons and fallback frames */}
         <canvas
           ref={canvasRef}
           width={640}
-          height={400}
-          className="w-full max-w-3xl block"
+          height={360}
+          className={`absolute inset-0 w-full h-full object-cover ${sourceMode === 'simulation' ? 'block' : 'pointer-events-none'}`}
         />
 
-        {/* Live HUD Overlay */}
-        <div className="absolute top-3 left-3 bg-slate-900/90 backdrop-blur border border-slate-800 p-2.5 rounded font-mono text-xs space-y-1">
-          <div className="text-slate-400">TRACK_ID: <span className="text-slate-200">person_01</span></div>
-          <div className="text-slate-400">ACTIVE_TRACKS: <span className="text-slate-200">{activePeople.length || 1}</span></div>
-          <div className="text-slate-400">CALIBRATED_ZONES: <span className="text-sky-400">{zones.length}</span></div>
-          <div className="text-slate-400">CURRENT_MODE: <span className="text-emerald-400 font-semibold">{activeScenario.toUpperCase()}</span></div>
+        {/* Camera Permission Alert */}
+        {cameraError && (
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur flex flex-col items-center justify-center p-6 text-center z-20">
+            <AlertTriangle className="w-8 h-8 text-amber-400 mb-2" />
+            <p className="text-slate-200 font-semibold mb-2">{cameraError}</p>
+            <div className="flex space-x-3 mt-2">
+              <button
+                onClick={() => setSourceMode('sample')}
+                className="px-3 py-1.5 rounded bg-sky-600 hover:bg-sky-500 text-white font-medium text-xs transition-colors"
+              >
+                Switch to Sample Video Footage
+              </button>
+              <button
+                onClick={startWebcam}
+                className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs transition-colors"
+              >
+                Retry Webcam Permission
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Source Mode Selector & Overlay Controls */}
+        <div className="absolute top-3 left-3 flex items-center space-x-2 z-10 bg-slate-900/90 backdrop-blur px-2 py-1 rounded border border-slate-800">
+          <button
+            onClick={() => setSourceMode('webcam')}
+            className={`px-2 py-1 rounded text-[11px] font-semibold flex items-center space-x-1 ${
+              sourceMode === 'webcam' ? 'bg-sky-500 text-white' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Camera className="w-3.5 h-3.5" />
+            <span>MY WEBCAM (LIVE)</span>
+          </button>
+
+          <button
+            onClick={() => setSourceMode('sample')}
+            className={`px-2 py-1 rounded text-[11px] font-semibold flex items-center space-x-1 ${
+              sourceMode === 'sample' ? 'bg-sky-500 text-white' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Video className="w-3.5 h-3.5" />
+            <span>SAMPLE FOOTAGE</span>
+          </button>
+        </div>
+
+        {/* Play/Pause & Skeleton Toggle */}
+        <div className="absolute top-3 right-3 flex items-center space-x-2 z-10">
+          <button
+            onClick={() => setShowSkeleton(!showSkeleton)}
+            className="p-1.5 rounded bg-slate-900/90 border border-slate-800 text-slate-300 hover:text-white"
+            title="Toggle Skeleton Overlay"
+          >
+            {showSkeleton ? <Eye className="w-3.5 h-3.5 text-sky-400" /> : <EyeOff className="w-3.5 h-3.5 text-slate-500" />}
+          </button>
+          <button
+            onClick={() => setIsPlaying(!isPlaying)}
+            className="p-1.5 rounded bg-slate-900/90 border border-slate-800 text-slate-300 hover:text-white"
+            title={isPlaying ? 'Pause Feed' : 'Resume Feed'}
+          >
+            {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 text-emerald-400" />}
+          </button>
+        </div>
+
+        {/* Live Watermark Indicator */}
+        <div className="absolute bottom-3 left-3 bg-slate-950/80 px-2 py-0.5 rounded text-[10px] text-slate-400 border border-slate-800">
+          MODE: <span className="text-emerald-400 font-bold uppercase">{sourceMode}</span> | FPS: <span className="text-slate-200">~10</span> | INFERENCE: <span className="text-sky-400">{latencyMs}MS</span>
         </div>
       </div>
 
-      {/* Interactive Verification Scenarios */}
-      <div className="pt-2">
-        <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center space-x-1.5">
-          <Play className="w-3.5 h-3.5 text-sky-400" />
-          <span>Deterministic Verification Scenarios (Simulate Kinematics)</span>
+      {/* Bottom Half: Exact Tactical Terminal HUD As Seen in Video */}
+      <div className="p-5 bg-black text-slate-200 flex flex-col space-y-4 border-t border-slate-900">
+        {/* 1. Situation Narrative Banner */}
+        <div className="text-xs uppercase tracking-wide font-mono text-slate-300 leading-relaxed min-h-[38px] border-b border-slate-900 pb-3">
+          {narrative}
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-          <button
-            disabled={simulating}
-            onClick={() => handleScenarioClick('idle')}
-            className={`px-3 py-2 text-xs font-medium rounded border transition-colors flex items-center justify-center space-x-1.5 ${
-              activeScenario === 'idle'
-                ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
-            }`}
-          >
-            <UserCheck className="w-3.5 h-3.5" />
-            <span>Normal Standing</span>
-          </button>
 
-          <button
-            disabled={simulating}
-            onClick={() => handleScenarioClick('bed')}
-            className={`px-3 py-2 text-xs font-medium rounded border transition-colors flex items-center justify-center space-x-1.5 ${
-              activeScenario === 'bed'
-                ? 'bg-sky-500/20 border-sky-500/50 text-sky-300'
-                : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
-            }`}
-          >
-            <Moon className="w-3.5 h-3.5" />
-            <span>Intentional Bed Rest</span>
-          </button>
+        {/* 2. Top Stats Bar: TIME, FRAMES, EST. COST */}
+        <div className="grid grid-cols-3 text-xs border-b border-slate-900 pb-3 text-slate-400 font-mono">
+          <div>
+            <div className="text-[10px] text-slate-500 uppercase">TIME</div>
+            <div className="text-sm font-bold text-slate-200">{String(elapsedSeconds).padStart(3, '0')} S</div>
+          </div>
+          <div>
+            <div className="text-[10px] text-slate-500 uppercase">FRAMES</div>
+            <div className="text-sm font-bold text-slate-200">{String(framesCount).padStart(4, '0')}</div>
+          </div>
+          <div>
+            <div className="text-[10px] text-slate-500 uppercase">EST. COST / USD</div>
+            <div className="text-sm font-bold text-emerald-400">$0.000000 (LOCAL)</div>
+          </div>
+        </div>
 
-          <button
-            disabled={simulating}
-            onClick={() => handleScenarioClick('fall')}
-            className={`px-3 py-2 text-xs font-medium rounded border transition-colors flex items-center justify-center space-x-1.5 ${
-              activeScenario === 'fall'
-                ? 'bg-rose-500/20 border-rose-500/50 text-rose-300'
-                : 'bg-rose-950/40 border-rose-800/60 text-rose-300 hover:bg-rose-900/60'
-            }`}
-          >
-            <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
-            <span>Sudden Fall Sequence</span>
-          </button>
+        {/* 3. High-Salience Active State Banner (Red for Fall, White for Normal) */}
+        <div
+          className={`py-2 px-3 rounded font-bold text-sm tracking-wider flex items-center justify-between ${
+            isEmergency
+              ? 'bg-rose-600 text-white'
+              : 'bg-white text-black'
+          }`}
+        >
+          <span className="font-mono">{topActive.percent.toFixed(1)}%</span>
+          <span className="uppercase">{topActive.label}</span>
+        </div>
 
-          <button
-            disabled={simulating}
-            onClick={() => handleScenarioClick('failed_stand')}
-            className={`px-3 py-2 text-xs font-medium rounded border transition-colors flex items-center justify-center space-x-1.5 ${
-              activeScenario === 'failed_stand'
-                ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
-            }`}
-          >
-            <ShieldAlert className="w-3.5 h-3.5" />
-            <span>Failed Standing x2</span>
-          </button>
+        {/* 4. Activity & Posture Distribution Breakdown Table */}
+        <div className="space-y-1.5 pt-1">
+          {distribution.map((item, idx) => (
+            <div
+              key={idx}
+              className="flex items-center justify-between py-1 px-2 rounded bg-slate-950/80 hover:bg-slate-900 border border-slate-900/60 font-mono text-xs text-slate-400"
+            >
+              <span className="text-slate-300 font-semibold">{item.percent.toFixed(1)}%</span>
+              <span className="uppercase tracking-wide text-slate-300">{item.label}</span>
+            </div>
+          ))}
+        </div>
 
-          <button
-            disabled={simulating}
-            onClick={() => handleScenarioClick('wandering')}
-            className={`px-3 py-2 text-xs font-medium rounded border transition-colors flex items-center justify-center space-x-1.5 ${
-              activeScenario === 'wandering'
-                ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-300'
-                : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
-            }`}
-          >
-            <Footprints className="w-3.5 h-3.5" />
-            <span>Restricted Zone Breach</span>
-          </button>
+        {/* 5. Bottom Kinematic Status Line */}
+        <div className="border-t border-slate-900 pt-3 flex items-center justify-between text-[11px] font-mono text-slate-500">
+          <div>
+            TORSO: <span className="text-slate-300">{kinematics.torsoAngle.toFixed(0)} DEG</span> | HEIGHT: <span className="text-slate-300">{kinematics.relativeHeight.toFixed(2)}</span>
+          </div>
+          <div>
+            STILLNESS: <span className="text-slate-300">{kinematics.motionlessDuration.toFixed(1)}S</span> | LATENCY: <span className="text-sky-400">{latencyMs}MS</span>
+          </div>
+        </div>
+
+        {/* Simulation Shortcut Controls */}
+        <div className="border-t border-slate-900/80 pt-3">
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">
+            Simulate Behavioral Scenarios (Click to Inject Kinematics):
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <button
+              onClick={() => onTriggerScenario('bed')}
+              className="py-1.5 px-2 rounded bg-slate-900 hover:bg-slate-800 text-sky-400 border border-slate-800 text-[11px]"
+            >
+              Bed Resting
+            </button>
+            <button
+              onClick={() => onTriggerScenario('fall')}
+              className="py-1.5 px-2 rounded bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-900/60 text-[11px]"
+            >
+              Sudden Fall
+            </button>
+            <button
+              onClick={() => onTriggerScenario('failed_stand')}
+              className="py-1.5 px-2 rounded bg-slate-900 hover:bg-slate-800 text-amber-400 border border-slate-800 text-[11px]"
+            >
+              Failed Rising x2
+            </button>
+            <button
+              onClick={() => onTriggerScenario('wandering')}
+              className="py-1.5 px-2 rounded bg-slate-900 hover:bg-slate-800 text-yellow-400 border border-slate-800 text-[11px]"
+            >
+              Restricted Area
+            </button>
+          </div>
         </div>
       </div>
     </div>

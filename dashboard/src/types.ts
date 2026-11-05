@@ -69,6 +69,29 @@ export interface Zone {
   description?: string;
 }
 
+export interface ActivityDistributionItem {
+  label: string;
+  percent: number;
+  status?: string;
+}
+
+export interface LiveFrameResult {
+  status: string;
+  has_person: boolean;
+  active_state: string;
+  narrative: string;
+  distribution: ActivityDistributionItem[];
+  landmarks: Record<string, [number, number, number]>;
+  bbox: [number, number, number, number];
+  torso_angle: number;
+  relative_body_height: number;
+  motion_intensity: number;
+  motionless_duration: number;
+  duration_seconds: number;
+  incidents: any[];
+  frame_number: number;
+}
+
 export interface AuditLog {
   id: number;
   entity_type: string;

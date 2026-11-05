@@ -10,7 +10,10 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+import base64
 import os
+import cv2
+import numpy as np
 from pydantic import BaseModel, Field
 
 from sentinel.perception.pose_estimator import SyntheticPoseEstimator, MediaPipePoseEstimator
@@ -355,6 +358,125 @@ def simulate_observation(req: SimulateObservationRequest):
         "triggered_events_count": len(events),
         "incidents": created_incidents,
     }
+
+
+class ProcessLiveFrameRequest(BaseModel):
+    image_base64: str
+    timestamp: Optional[float] = None
+    person_id: Optional[str] = "person_01"
+
+
+@app.get("/api/sample-video")
+@app.head("/api/sample-video")
+def get_sample_video():
+    """Serves the test video recording for testing and verification."""
+    sample_path = "/Users/pavanspoojary/.gemini/antigravity/brain/2115ac10-01e2-423c-a43e-f049b3c4f49a/.user_uploaded/media_1793898016554_d6316989.mp4"
+    if os.path.exists(sample_path):
+        return FileResponse(sample_path, media_type="video/mp4")
+    raise HTTPException(status_code=404, detail="Sample video not found")
+
+
+@app.post("/api/process-live-frame")
+def process_live_frame(req: ProcessLiveFrameRequest):
+    """Processes a live camera video frame from the user's webcam and runs full deterministic analysis."""
+    if not engine:
+        raise HTTPException(status_code=500, detail="Engine uninitialized")
+
+    now = req.timestamp or time.time()
+    try:
+        b64_data = req.image_base64
+        if "," in b64_data:
+            _, b64_data = b64_data.split(",", 1)
+        raw_bytes = base64.b64decode(b64_data)
+        nparr = np.frombuffer(raw_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if frame is None:
+            raise ValueError("Failed to decode image frame")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid image format: {e}")
+
+    result = engine.process_frame(frame, timestamp=now)
+
+    from sentinel.activity.state_machine import ActivityState, MovementObservation
+
+    # If tracks were detected in frame
+    if result["tracks"]:
+        track = result["tracks"][0]
+        pid = track["person_id"]
+        sm = engine.get_or_create_state_machine(pid, now)
+        act = ActivityState(track["activity"])
+
+        # Construct observation slice
+        obs = MovementObservation(
+            timestamp=now,
+            activity=act,
+            torso_angle=track["torso_angle"],
+            relative_body_height=track["relative_body_height"],
+            vertical_velocity=0.0,
+            vertical_acceleration=0.0,
+            movement_velocity=0.0,
+            motion_intensity=track["motion_intensity"],
+            floor_proximity=0.5,
+            confidence=track["confidence"],
+        )
+
+        highest_risk = 0.0
+        if result["new_incidents"]:
+            highest_risk = max(inc["risk_score"] for inc in result["new_incidents"])
+
+        distribution = engine.activity_classifier.compute_distribution(
+            obs=obs,
+            active_state=act,
+            risk_score=highest_risk,
+        )
+
+        narrative = engine.activity_classifier.generate_narrative(
+            active_state=act,
+            obs=obs,
+            duration=sm.current_duration_seconds,
+            motionless_duration=sm.motionless_duration_seconds,
+            failed_attempts=sm.failed_standing_attempts_count,
+        )
+
+        return {
+            "status": "SUCCESS",
+            "person_id": pid,
+            "has_person": True,
+            "active_state": act.value,
+            "narrative": narrative,
+            "distribution": distribution,
+            "landmarks": track["landmarks"],
+            "bbox": track["bbox"],
+            "torso_angle": track["torso_angle"],
+            "relative_body_height": track["relative_body_height"],
+            "motion_intensity": track["motion_intensity"],
+            "motionless_duration": round(sm.motionless_duration_seconds, 1),
+            "duration_seconds": round(sm.current_duration_seconds, 1),
+            "incidents": result["new_incidents"],
+            "frame_number": result["frame_number"],
+        }
+    else:
+        distribution = engine.activity_classifier.compute_distribution(
+            obs=None,
+            active_state=ActivityState.UNKNOWN,
+            risk_score=0.0,
+        )
+        return {
+            "status": "SUCCESS",
+            "has_person": False,
+            "active_state": "NO_PERSON",
+            "narrative": "REVIEWING FOOTAGE... NO HUMAN SUBJECT VISIBLE IN CAMERA FRAME.",
+            "distribution": distribution,
+            "landmarks": {},
+            "bbox": [0, 0, 0, 0],
+            "torso_angle": 0.0,
+            "relative_body_height": 0.0,
+            "motion_intensity": 0.0,
+            "motionless_duration": 0.0,
+            "duration_seconds": 0.0,
+            "incidents": [],
+            "frame_number": result["frame_number"],
+        }
 
 
 @app.websocket("/ws/live")
