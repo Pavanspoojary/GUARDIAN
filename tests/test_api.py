@@ -2,7 +2,7 @@
 
 import pytest
 from fastapi.testclient import TestClient
-from sentinel.api.main import app
+from guardian.api.main import app
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def test_root_serves_dashboard(client):
     """Verify root / serves the React dashboard index.html."""
     res = client.get("/")
     assert res.status_code == 200
-    assert "SENTINEL" in res.text
+    assert "GUARDIAN" in res.text
 
 
 def test_health_endpoint(client):

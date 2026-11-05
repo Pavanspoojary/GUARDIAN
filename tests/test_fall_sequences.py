@@ -2,13 +2,13 @@
 
 import time
 import pytest
-from sentinel.activity.state_machine import (
+from guardian.activity.state_machine import (
     ActivityState,
     PersonStateMachine,
     MovementObservation,
 )
-from sentinel.engine.rule_engine import RuleEngine
-from sentinel.engine.context_engine import RoomCalibration, ZoneDefinition, ZoneType
+from guardian.engine.rule_engine import RuleEngine
+from guardian.engine.context_engine import RoomCalibration, ZoneDefinition, ZoneType
 
 
 @pytest.fixture
@@ -21,7 +21,7 @@ def rule_engine():
 def test_intentional_lying_on_bed_does_not_trigger_fall(rule_engine):
     """Scenario: Person walks into bedroom, sits on bed, lies down to rest.
 
-    SENTINEL must NOT trigger a fall alert or prolonged floor alert.
+    GUARDIAN must NOT trigger a fall alert or prolonged floor alert.
     """
     sm = PersonStateMachine(person_id="elder_1", initial_timestamp=1000.0)
 
@@ -101,7 +101,7 @@ def test_intentional_lying_on_bed_does_not_trigger_fall(rule_engine):
 def test_accidental_fall_sequence_triggers_urgent_alerts(rule_engine):
     """Scenario: Person walking, suffers rapid downward acceleration, hits floor, remains motionless.
 
-    SENTINEL must trigger possible_fall_detection with URGENT risk level and transparent explanation.
+    GUARDIAN must trigger possible_fall_detection with URGENT risk level and transparent explanation.
     """
     sm = PersonStateMachine(person_id="elder_2", initial_timestamp=2000.0)
 

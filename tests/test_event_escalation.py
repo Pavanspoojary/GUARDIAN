@@ -1,13 +1,13 @@
 """Tests verifying rule priorities, suppression, cooldowns, and deduplication."""
 
 import pytest
-from sentinel.activity.state_machine import (
+from guardian.activity.state_machine import (
     ActivityState,
     PersonStateMachine,
     MovementObservation,
 )
-from sentinel.engine.rule_engine import RuleEngine
-from sentinel.engine.condition_registry import EvaluationContext
+from guardian.engine.rule_engine import RuleEngine
+from guardian.engine.condition_registry import EvaluationContext
 
 
 @pytest.fixture

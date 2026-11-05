@@ -4,11 +4,11 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from sentinel.storage.database import Base
-from sentinel.storage.repositories import IncidentRepository, AuditRepository
-from sentinel.intelligence.behavioral_baseline import PersonBehavioralProfile, compute_median_and_mad
-from sentinel.intelligence.event_correlator import EventCorrelator
-from sentinel.events.event_manager import EventManager
+from guardian.storage.database import Base
+from guardian.storage.repositories import IncidentRepository, AuditRepository
+from guardian.intelligence.behavioral_baseline import PersonBehavioralProfile, compute_median_and_mad
+from guardian.intelligence.event_correlator import EventCorrelator
+from guardian.events.event_manager import EventManager
 
 
 @pytest.fixture

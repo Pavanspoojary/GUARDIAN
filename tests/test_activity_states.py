@@ -1,7 +1,7 @@
 """Tests verifying the deterministic activity state machine."""
 
 import pytest
-from sentinel.activity.state_machine import (
+from guardian.activity.state_machine import (
     ActivityState,
     PersonStateMachine,
     MovementObservation,

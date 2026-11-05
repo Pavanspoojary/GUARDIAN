@@ -3,12 +3,12 @@
 import pytest
 import numpy as np
 
-from sentinel.perception.geometry import (
+from guardian.perception.geometry import (
     compute_angle_with_vertical,
     compute_iou,
     compute_bounding_box,
 )
-from sentinel.perception.pose_estimator import (
+from guardian.perception.pose_estimator import (
     PoseDetectionResult,
     SyntheticPoseEstimator,
     KEY_LEFT_SHOULDER,
@@ -18,12 +18,12 @@ from sentinel.perception.pose_estimator import (
     KEY_LEFT_ANKLE,
     KEY_RIGHT_ANKLE,
 )
-from sentinel.perception.tracker import MultiPersonTracker
-from sentinel.perception.video_source import VideoSource
-from sentinel.activity.feature_extractor import FeatureExtractor
-from sentinel.activity.activity_classifier import ActivityClassifier
-from sentinel.activity.state_machine import ActivityState, PersonStateMachine
-from sentinel.engine.rule_engine import RuleEngine
+from guardian.perception.tracker import MultiPersonTracker
+from guardian.perception.video_source import VideoSource
+from guardian.activity.feature_extractor import FeatureExtractor
+from guardian.activity.activity_classifier import ActivityClassifier
+from guardian.activity.state_machine import ActivityState, PersonStateMachine
+from guardian.engine.rule_engine import RuleEngine
 
 
 def test_geometry_calculations():

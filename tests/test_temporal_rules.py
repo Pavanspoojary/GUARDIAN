@@ -1,14 +1,14 @@
 """Tests verifying deterministic temporal operators and time-of-day rules."""
 
 import pytest
-from sentinel.activity.state_machine import (
+from guardian.activity.state_machine import (
     ActivityState,
     PersonStateMachine,
     MovementObservation,
 )
-from sentinel.engine.rule_engine import RuleEngine
-from sentinel.engine.condition_registry import EvaluationContext
-from sentinel.engine.temporal_operators import check_time_window
+from guardian.engine.rule_engine import RuleEngine
+from guardian.engine.condition_registry import EvaluationContext
+from guardian.engine.temporal_operators import check_time_window
 
 
 @pytest.fixture
