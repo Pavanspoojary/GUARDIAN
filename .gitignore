@@ -6,6 +6,5 @@ __pycache__/
 *.db
 *.sqlite3
 dashboard/node_modules/
-dashboard/dist/
 *.task
 .DS_Store
