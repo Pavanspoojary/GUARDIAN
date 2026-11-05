@@ -1,0 +1,30 @@
+id: prolonged_floor_inactivity
+name: Prolonged Floor Inactivity
+description: Person remains recumbent on the floor with minimal movement exceeding safety threshold.
+enabled: true
+priority: 95
+risk_level: URGENT
+base_risk_score: 0.95
+cooldown_seconds: 180.0
+suppresses:
+  - general_prolonged_inactivity
+recommended_action: Urgent attention needed. Person has remained motionless on floor.
+
+conditions:
+  all_of:
+    - metric: activity_state
+      operator: eq
+      value: LYING_ON_FLOOR
+      weight: 2.0
+      description: Person is lying on the floor
+    - metric: motionless_duration_seconds
+      operator: gte
+      value: 45.0
+      weight: 2.5
+      description: Motionless duration on floor exceeds 45 seconds
+    - none_of:
+        - metric: zone_name
+          operator: in
+          value: ["BED", "SOFA"]
+          weight: 1.5
+          description: Located in calibrated resting furniture

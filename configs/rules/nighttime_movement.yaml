@@ -1,0 +1,33 @@
+id: nighttime_movement_monitoring
+name: Extended Nighttime Movement
+description: Monitors sustained physical ambulation or wandering during sleeping hours.
+enabled: true
+priority: 60
+risk_level: WATCH
+base_risk_score: 0.50
+cooldown_seconds: 300.0
+recommended_action: Verify if resident requires assistance, water, or guidance back to bed.
+
+conditions:
+  all_of:
+    - metric: activity_state
+      operator: in
+      value: ["WALKING", "STANDING"]
+      weight: 1.2
+      description: Person actively standing or walking
+    - metric: duration_seconds
+      operator: gte
+      value: 60.0
+      weight: 1.5
+      description: Continuous movement exceeds 60 seconds
+    - any_of:
+        - metric: current_hour
+          operator: gte
+          value: 23
+          weight: 1.0
+          description: Late night hour
+        - metric: current_hour
+          operator: lt
+          value: 5
+          weight: 1.0
+          description: Early morning hour

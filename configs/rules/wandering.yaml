@@ -1,0 +1,17 @@
+id: restricted_zone_crossing
+name: Restricted Zone Breach
+description: Person has entered a hazardous or restricted area such as steep stairs, utility room, or exit.
+enabled: true
+priority: 85
+risk_level: REVIEW
+base_risk_score: 0.75
+cooldown_seconds: 120.0
+recommended_action: Immediate interception advised. Person entered restricted safety zone.
+
+conditions:
+  all_of:
+    - metric: zone_name
+      operator: in
+      value: ["RESTRICTED", "STAIRS", "EXIT_DOOR"]
+      weight: 2.5
+      description: Person coordinates intersect restricted perimeter

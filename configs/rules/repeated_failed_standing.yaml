@@ -1,0 +1,22 @@
+id: repeated_failed_standing
+name: Repeated Failed Standing Attempts
+description: Person repeatedly attempts to rise from a chair or floor but falls back into sitting/recumbency.
+enabled: true
+priority: 80
+risk_level: REVIEW
+base_risk_score: 0.72
+cooldown_seconds: 120.0
+recommended_action: Physical assistance required. Multiple failed standing attempts indicate acute weakness or fatigue.
+
+conditions:
+  all_of:
+    - metric: failed_standing_attempts
+      operator: gte
+      value: 2
+      weight: 2.0
+      description: At least 2 failed rising attempts observed
+    - metric: activity_state
+      operator: in
+      value: ["SITTING", "LYING_ON_FLOOR"]
+      weight: 1.0
+      description: Current posture remains seated or floor-bound

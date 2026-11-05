@@ -1,0 +1,23 @@
+id: general_prolonged_inactivity
+name: Unexpected Prolonged Inactivity
+description: Identifies extended stillness in non-bed locations exceeding typical resting baseline.
+enabled: true
+priority: 50
+risk_level: REVIEW
+base_risk_score: 0.68
+cooldown_seconds: 300.0
+recommended_action: Conduct welfare check. Extended stillness detected outside sleeping area.
+
+conditions:
+  all_of:
+    - metric: motionless_duration_seconds
+      operator: gte
+      value: 180.0
+      weight: 1.5
+      description: Motionless duration exceeds 180 seconds
+    - none_of:
+        - metric: zone_name
+          operator: eq
+          value: BED
+          weight: 1.5
+          description: Resting in bed during scheduled sleep

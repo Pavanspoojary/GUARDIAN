@@ -1,0 +1,22 @@
+id: camera_obstruction_failure
+name: Camera Obstruction or Signal Failure
+description: Camera lens covered, dark frame detected, or hardware connection lost.
+enabled: true
+priority: 90
+risk_level: REVIEW
+base_risk_score: 0.75
+cooldown_seconds: 180.0
+recommended_action: Inspect camera physical lens, wiring, and network connectivity immediately.
+
+conditions:
+  any_of:
+    - metric: camera_status
+      operator: in
+      value: ["OFFLINE", "ERROR", "DISCONNECTED"]
+      weight: 2.0
+      description: Camera connection offline or errored
+    - metric: camera_obstruction_score
+      operator: gte
+      value: 0.85
+      weight: 2.0
+      description: Optical obstruction or black/static frame detected

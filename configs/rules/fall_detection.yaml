@@ -1,0 +1,42 @@
+id: possible_fall_detection
+name: Possible Fall Detection
+description: Detects sudden descent followed by floor contact or lying posture without immediate recovery.
+enabled: true
+priority: 100
+risk_level: URGENT
+base_risk_score: 0.90
+cooldown_seconds: 120.0
+suppresses:
+  - general_prolonged_inactivity
+  - unexpected_floor_posture
+recommended_action: Immediate caregiver check required. Verify responsiveness.
+
+conditions:
+  all_of:
+    - metric: activity_state
+      operator: in
+      value: ["LYING_ON_FLOOR", "LYING"]
+      weight: 1.5
+      description: Person in recumbent or floor position
+    - metric: torso_angle
+      operator: gte
+      value: 60.0
+      weight: 1.2
+      description: Torso horizontal or near-horizontal
+    - any_of:
+        - metric: seconds_since_sudden_descent
+          operator: lte
+          value: 10.0
+          weight: 2.0
+          description: Rapid descent observed prior to floor contact
+        - metric: peak_descent_velocity
+          operator: gte
+          value: 0.8
+          weight: 1.8
+          description: High vertical descent velocity
+    - none_of:
+        - metric: zone_name
+          operator: in
+          value: ["BED", "SOFA"]
+          weight: 2.0
+          description: Positioned safely within designated bed or sofa resting area

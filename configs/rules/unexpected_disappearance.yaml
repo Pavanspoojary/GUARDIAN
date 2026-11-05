@@ -1,0 +1,27 @@
+id: unexpected_person_disappearance
+name: Unexpected Person Disappearance
+description: Tracked individual suddenly vanished from camera view outside normal egress doors.
+enabled: true
+priority: 75
+risk_level: REVIEW
+base_risk_score: 0.70
+cooldown_seconds: 300.0
+recommended_action: Check perimeter. Person unobserved in monitored zone longer than expected.
+
+conditions:
+  all_of:
+    - metric: camera_status
+      operator: eq
+      value: ONLINE
+      weight: 1.0
+      description: Camera hardware operational
+    - metric: activity_state
+      operator: eq
+      value: UNKNOWN
+      weight: 1.5
+      description: Person tracking state lost
+    - metric: duration_seconds
+      operator: gte
+      value: 120.0
+      weight: 1.8
+      description: Disappearance duration exceeds 120 seconds

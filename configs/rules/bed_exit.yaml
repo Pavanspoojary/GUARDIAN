@@ -1,0 +1,38 @@
+id: nighttime_bed_exit
+name: Nighttime Bed Exit
+description: Alerts caregivers when person transitions out of bed during vulnerable nighttime hours.
+enabled: true
+priority: 70
+risk_level: WATCH
+base_risk_score: 0.55
+cooldown_seconds: 180.0
+recommended_action: Assist person. Nighttime bed exit detected.
+
+conditions:
+  all_of:
+    - metric: previous_state
+      operator: in
+      value: ["LYING", "SITTING"]
+      weight: 1.0
+      description: Previous state was in bed
+    - metric: activity_state
+      operator: in
+      value: ["STANDING", "WALKING"]
+      weight: 1.5
+      description: Person has stood up or started walking
+    - any_of:
+        - metric: current_hour
+          operator: gte
+          value: 22
+          weight: 1.2
+          description: Late night hour (22:00 or later)
+        - metric: current_hour
+          operator: lt
+          value: 6
+          weight: 1.2
+          description: Early morning hour (before 06:00)
+    - metric: room_type
+      operator: eq
+      value: BEDROOM
+      weight: 1.0
+      description: Monitored bedroom environment

@@ -1,0 +1,33 @@
+id: abnormal_activity_sequence
+name: Repeated Abnormal Activity Sequences
+description: Detects erratic, agitated, or abnormal rapid switching between postures.
+enabled: true
+priority: 55
+risk_level: WATCH
+base_risk_score: 0.48
+cooldown_seconds: 300.0
+recommended_action: Evaluate resident comfort and environmental factors causing restlessness.
+
+conditions:
+  all_of:
+    - metric: activity_state
+      operator: in
+      value: ["TRANSITIONING", "SITTING", "STANDING"]
+      weight: 1.0
+      description: Unsettled physical state
+    - metric: movement_velocity
+      operator: gte
+      value: 0.45
+      weight: 1.2
+      description: Agitated or elevated velocity
+    - any_of:
+        - metric: current_hour
+          operator: gte
+          value: 23
+          weight: 1.0
+          description: Nighttime period
+        - metric: current_hour
+          operator: lt
+          value: 5
+          weight: 1.0
+          description: Early morning period
