@@ -1,4 +1,4 @@
-"""SENTINEL CLI and entrypoint for running server and processing video streams."""
+"""GUARDIAN CLI and entrypoint for running server and processing video streams."""
 
 from __future__ import annotations
 
@@ -8,20 +8,20 @@ import time
 import uvicorn
 import cv2
 
-from sentinel.perception.video_source import VideoSource
-from sentinel.perception.pose_estimator import MediaPipePoseEstimator, SyntheticPoseEstimator
-from sentinel.system import SentinelEngine
+from guardian.perception.video_source import VideoSource
+from guardian.perception.pose_estimator import MediaPipePoseEstimator, SyntheticPoseEstimator
+from guardian.system import GuardianEngine
 
 
 def run_server(host: str = "0.0.0.0", port: int = 8000) -> None:
     """Launch the FastAPI server."""
-    print(f"Starting SENTINEL Decision Engine Server on http://{host}:{port}")
-    uvicorn.run("sentinel.api.main:app", host=host, port=port, reload=False)
+    print(f"Starting GUARDIAN Decision Engine Server on http://{host}:{port}")
+    uvicorn.run("guardian.api.main:app", host=host, port=port, reload=False)
 
 
 def process_video_stream(source: str, rules_dir: str = "configs/rules") -> None:
     """Run real-time video processing from camera or video file."""
-    print(f"Initializing SENTINEL video processing pipeline for source: {source}")
+    print(f"Initializing GUARDIAN video processing pipeline for source: {source}")
     try:
         pose_estimator = MediaPipePoseEstimator()
         print("MediaPipe Pose Landmarker initialized successfully.")
@@ -29,7 +29,7 @@ def process_video_stream(source: str, rules_dir: str = "configs/rules") -> None:
         print(f"MediaPipe initialization warning: {e}. Falling back to Synthetic provider.")
         pose_estimator = SyntheticPoseEstimator()
 
-    engine = SentinelEngine(
+    engine = GuardianEngine(
         pose_estimator=pose_estimator,
         rules_directory=rules_dir,
     )
@@ -63,7 +63,7 @@ def process_video_stream(source: str, rules_dir: str = "configs/rules") -> None:
                     f"Dropped frames: {video.dropped_frames}"
                 )
     except KeyboardInterrupt:
-        print("\nStopping SENTINEL video processing.")
+        print("\nStopping GUARDIAN video processing.")
     finally:
         video.release()
         engine.close()
@@ -71,7 +71,7 @@ def process_video_stream(source: str, rules_dir: str = "configs/rules") -> None:
 
 def validate_rules(rules_dir: str = "configs/rules") -> None:
     """Validate all YAML rule definitions in the configuration directory."""
-    from sentinel.engine.rule_engine import RuleEngine
+    from guardian.engine.rule_engine import RuleEngine
     engine = RuleEngine()
     rules = engine.load_rules_from_directory(rules_dir)
     print(f"Successfully loaded and validated {len(rules)} rules from {rules_dir}:")
@@ -81,7 +81,7 @@ def validate_rules(rules_dir: str = "configs/rules") -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="SENTINEL Deterministic Safety Engine")
+    parser = argparse.ArgumentParser(description="GUARDIAN Deterministic Safety Engine")
     subparsers = parser.add_subparsers(dest="command")
 
     # Serve command
