@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Eye, EyeOff, Play, Pause, AlertCircle, RefreshCw, Maximize2, Minimize2, Activity, ShieldAlert, ChevronDown, ChevronUp } from 'lucide-react';
+import { Eye, EyeOff, Play, Pause, AlertCircle, RefreshCw, Maximize2, Minimize2, Activity, ShieldAlert, ChevronLeft, ChevronRight } from 'lucide-react';
 import { LiveFrameResult, ActivityDistributionItem, Incident } from '../types';
 
 interface LiveMonitorProps {
@@ -23,7 +23,7 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [cameraReady, setCameraReady] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
-  const [isHudExpanded, setIsHudExpanded] = useState<boolean>(true);
+  const [isHudVisible, setIsHudVisible] = useState<boolean>(true);
 
   // High efficiency telemetry HUD states
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
@@ -403,17 +403,7 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
           </div>
         )}
 
-        {/* TOP LEFT FLOATING HUD: Live Telemetry Status */}
-        <div className="absolute top-4 left-4 z-20 flex items-center space-x-2 bg-black/80 backdrop-blur-md px-3.5 py-2 rounded-xl border border-slate-800/80 shadow-lg text-slate-200 font-mono">
-          <span className={`w-2.5 h-2.5 rounded-full ${cameraReady ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
-          <span className="font-bold tracking-wider text-[11px]">LIVE SURVEILLANCE</span>
-          <span className="text-slate-600">|</span>
-          <span className="text-sky-400 font-semibold">{latencyMs}MS</span>
-          <span className="text-slate-600">|</span>
-          <span className="text-slate-400 font-medium">~{adaptiveFps} FPS (ADAPTIVE)</span>
-        </div>
-
-        {/* TOP RIGHT FLOATING HUD: View Controls & Fullscreen */}
+        {/* TOP RIGHT FLOATING VIEW CONTROLS & FULLSCREEN */}
         <div className="absolute top-4 right-4 z-20 flex items-center space-x-2">
           {urgentIncidents.length > 0 && (
             <div className="bg-rose-600/90 backdrop-blur text-white px-3 py-1.5 rounded-xl border border-rose-500 font-bold text-xs flex items-center space-x-1.5 animate-pulse shadow-lg">
@@ -447,43 +437,54 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
           </button>
         </div>
 
-        {/* BOTTOM FLOATING TACTICAL COMMAND DOCK */}
-        <div className="absolute bottom-4 inset-x-4 z-20 max-w-4xl mx-auto flex flex-col bg-black/85 backdrop-blur-xl border border-slate-800/90 rounded-2xl p-4 shadow-2xl transition-all">
-          {/* Header Bar of the Dock */}
-          <div className="flex items-center justify-between pb-2.5 border-b border-slate-800/80">
-            <div className="flex items-center space-x-2 text-slate-300 font-mono text-xs">
-              <Activity className="w-3.5 h-3.5 text-sky-400" />
-              <span className="font-semibold uppercase tracking-wide truncate max-w-lg">{narrative}</span>
-            </div>
-
-            <button
-              onClick={() => setIsHudExpanded(!isHudExpanded)}
-              className="text-slate-500 hover:text-slate-300 transition-colors p-1"
-              title={isHudExpanded ? 'Collapse Telemetry' : 'Expand Telemetry'}
-            >
-              {isHudExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-            </button>
-          </div>
-
-          {isHudExpanded && (
-            <div className="space-y-3 pt-3">
-              {/* Stats Grid: TIME, FRAMES, COST */}
-              <div className="grid grid-cols-3 text-xs text-slate-400 font-mono border-b border-slate-900 pb-2.5">
-                <div>
-                  <div className="text-[10px] text-slate-500 uppercase">SURVEILLANCE TIME</div>
-                  <div className="text-sm font-bold text-slate-100">{String(elapsedSeconds).padStart(3, '0')} S</div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-slate-500 uppercase">PROCESSED FRAMES</div>
-                  <div className="text-sm font-bold text-slate-100">{String(framesCount).padStart(4, '0')}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-slate-500 uppercase">CLOUD COST / API</div>
-                  <div className="text-sm font-bold text-emerald-400">$0.000000 (LOCAL)</div>
-                </div>
+        {/* LEFT-SIDE VERTICAL TACTICAL TELEMETRY HUD DOCK */}
+        {isHudVisible ? (
+          <div className="absolute top-4 left-4 bottom-4 z-20 w-80 md:w-88 flex flex-col bg-black/85 backdrop-blur-xl border border-slate-800/90 rounded-2xl p-4 shadow-2xl transition-all overflow-hidden">
+            {/* Top Bar of Left HUD */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
+              <div className="flex items-center space-x-2 text-slate-200">
+                <span className={`w-2.5 h-2.5 rounded-full ${cameraReady ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+                <span className="font-bold tracking-wider text-[11px]">LIVE SURVEILLANCE</span>
               </div>
 
-              {/* Active State Banner */}
+              <div className="flex items-center space-x-2">
+                <span className="text-[10px] text-sky-400 font-semibold bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/30">
+                  {latencyMs}MS
+                </span>
+                <button
+                  onClick={() => setIsHudVisible(false)}
+                  className="text-slate-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-850"
+                  title="Collapse HUD to Left"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Narrative Banner */}
+            <div className="mt-3 text-[11px] uppercase tracking-wide font-mono text-slate-300 leading-relaxed bg-[#0b0f19] p-3 rounded-xl border border-slate-900 flex items-start space-x-2 shrink-0">
+              <Activity className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+              <span className="line-clamp-3">{narrative}</span>
+            </div>
+
+            {/* 3-Row Telemetry Metrics (TIME, FRAMES, COST) */}
+            <div className="grid grid-cols-3 gap-2 py-3 border-b border-slate-900 text-xs font-mono shrink-0">
+              <div>
+                <div className="text-[9px] text-slate-500 uppercase tracking-wider">TIME</div>
+                <div className="text-sm font-bold text-slate-100">{String(elapsedSeconds).padStart(3, '0')} S</div>
+              </div>
+              <div>
+                <div className="text-[9px] text-slate-500 uppercase tracking-wider">FRAMES</div>
+                <div className="text-sm font-bold text-slate-100">{String(framesCount).padStart(4, '0')}</div>
+              </div>
+              <div>
+                <div className="text-[9px] text-slate-500 uppercase tracking-wider">CLOUD COST</div>
+                <div className="text-sm font-bold text-emerald-400">$0.00 (LOC)</div>
+              </div>
+            </div>
+
+            {/* High-Salience Active State Banner */}
+            <div className="py-2 shrink-0">
               <div
                 className={`py-2 px-3.5 rounded-xl font-bold text-xs tracking-wider flex items-center justify-between transition-colors shadow-sm ${
                   isEmergency
@@ -494,32 +495,53 @@ export const LiveMonitor: React.FC<LiveMonitorProps> = ({
                 <span className="font-mono text-sm">{topActive.percent.toFixed(1)}%</span>
                 <span className="uppercase text-sm">{topActive.label}</span>
               </div>
+            </div>
 
-              {/* Multi-column Posture Breakdown Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                {distribution.slice(1, 7).map((item, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-slate-950/90 border border-slate-800/60 font-mono text-[11px] text-slate-300"
-                  >
-                    <span className="font-semibold text-slate-400">{item.percent.toFixed(1)}%</span>
-                    <span className="uppercase tracking-wide truncate ml-2 text-slate-300">{item.label}</span>
-                  </div>
-                ))}
+            {/* Vertical Posture Distribution Breakdown Stack */}
+            <div className="flex-1 space-y-1.5 overflow-y-auto pr-1 py-1 min-h-0">
+              {distribution.slice(1).map((item, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-[#111622] hover:bg-[#161c2d] border border-slate-900/80 font-mono text-xs text-slate-300 transition-colors"
+                >
+                  <span className="font-semibold text-slate-400">{item.percent.toFixed(1)}%</span>
+                  <span className="uppercase tracking-wide truncate ml-2 text-slate-300">{item.label}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Kinematics Status Footer */}
+            <div className="pt-3 border-t border-slate-900 flex flex-col space-y-1 text-[10px] text-slate-500 font-mono uppercase shrink-0">
+              <div className="flex items-center justify-between text-slate-400">
+                <span>{kinematics.motionIntensity > 0.035 ? 'MOVEMENT / POSTURE CHANGE' : 'NO CLEAR CHANGE'}</span>
+                <span className="text-sky-400">~{adaptiveFps} FPS</span>
               </div>
-
-              {/* Kinematics Status Footer */}
-              <div className="flex items-center justify-between text-[10px] text-slate-500 border-t border-slate-900 pt-2 uppercase">
-                <div>
-                  {kinematics.motionIntensity > 0.035 ? 'MOVEMENT / POSTURE CHANGE' : 'NO CLEAR CHANGE'} &bull; LATENCY: {latencyMs}MS
-                </div>
-                <div>
-                  TORSO: {kinematics.torsoAngle.toFixed(0)}&deg; &bull; REL_H: {kinematics.relativeHeight.toFixed(2)} &bull; STILLNESS: {kinematics.motionlessDuration.toFixed(1)}S
-                </div>
+              <div className="flex items-center justify-between text-slate-500">
+                <span>TORSO: {kinematics.torsoAngle.toFixed(0)}&deg;</span>
+                <span>HEIGHT: {kinematics.relativeHeight.toFixed(2)}</span>
+                <span>STILL: {kinematics.motionlessDuration.toFixed(1)}S</span>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          /* Collapsed HUD Mini-Pill on Left */
+          <div className="absolute top-4 left-4 z-20 flex items-center space-x-2 bg-black/85 backdrop-blur-md p-1.5 rounded-xl border border-slate-800 shadow-xl font-mono text-xs">
+            <button
+              onClick={() => setIsHudVisible(true)}
+              className="p-1.5 rounded-lg bg-sky-500/20 text-sky-300 border border-sky-500/30 hover:bg-sky-500/30 transition-colors"
+              title="Expand Telemetry HUD"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            <div
+              className={`px-3 py-1 rounded-lg font-bold text-xs uppercase ${
+                isEmergency ? 'bg-rose-600 text-white' : 'bg-white text-black'
+              }`}
+            >
+              {topActive.percent.toFixed(0)}% {topActive.label}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
